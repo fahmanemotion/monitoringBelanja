@@ -189,7 +189,7 @@ function applyRoleRestrictions(role) {
 
   // User: sembunyikan upload button, pengaturan nav, edit controls
   var hideIds = ['uploadBtn','keuUploadBtn','setUploadBtn',
-                 'nav-pengaturan','btnProcess'];
+                 'nav-pengaturan','nav-manajemen','btnProcess'];
   hideIds.forEach(function(id){
     var el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -568,10 +568,6 @@ function switchPage(pageId, navEl) {
     setTimeout(function () {
       Object.keys(CHARTS).forEach(function (k) { if (CHARTS[k]) CHARTS[k].resize(); });
     }, 50);
-  }
-  // Muat daftar akun saat buka pengaturan (admin only)
-  if (pageId === 'pengaturan' && APP.currentUser && APP.currentUser.role === 'admin') {
-    loadUsers();
   }
   // Cegah user mengakses pengaturan
   if (pageId === 'pengaturan' && APP.viewOnly) {
@@ -2649,6 +2645,52 @@ function renderRealisasiBulananTable() {
       '</td>' +
     '</tr>';
   }).filter(Boolean).join('');
+}
+
+
+/**
+ * switchPengaturanTab — toggle antara tab Pengaturan Data dan Manajemen Akun
+ */
+function switchPengaturanTab(tab) {
+  var isData = tab === 'data';
+
+  // Panel visibility
+  var pData = document.getElementById('tabPaneData');
+  var pAkun = document.getElementById('tabPaneAkun');
+  if (pData) pData.style.display = isData ? 'block' : 'none';
+  if (pAkun) pAkun.style.display = isData ? 'none'  : 'block';
+
+  // Tab button style
+  var bData = document.getElementById('tabBtnData');
+  var bAkun = document.getElementById('tabBtnAkun');
+  if (bData) {
+    bData.style.background = isData ? 'var(--blue)' : 'transparent';
+    bData.style.color      = isData ? '#fff'        : 'var(--t2)';
+  }
+  if (bAkun) {
+    bAkun.style.background = isData ? 'transparent' : 'var(--blue)';
+    bAkun.style.color      = isData ? 'var(--t2)'   : '#fff';
+  }
+
+  // Update page title & sub
+  var title = document.getElementById('pgSettingTitle');
+  var sub   = document.getElementById('pgSettingSub');
+  if (title) title.textContent = isData ? 'Pengaturan Data' : 'Manajemen Akun';
+  if (sub)   sub.textContent   = isData
+    ? 'Konfigurasi data anggaran, blokir, target, dan realisasi'
+    : 'Kelola akun admin dan user yang dapat mengakses SIPADU';
+
+  // Update sidebar active state
+  var navData = document.getElementById('nav-pengaturan');
+  var navAkun = document.getElementById('nav-manajemen');
+  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+  if (isData && navData) navData.classList.add('active');
+  if (!isData && navAkun) navAkun.classList.add('active');
+
+  // Load users saat buka tab akun
+  if (!isData && APP.currentUser && APP.currentUser.role === 'admin') {
+    loadUsers();
+  }
 }
 
 /* ── Keyboard shortcuts ─────────────────────────────────────── */

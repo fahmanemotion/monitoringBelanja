@@ -21,66 +21,210 @@
   <body>
 
     <!-- ══════ LOGIN PAGE ══════ -->
-    <div id="loginPage" style="display:flex;min-height:100vh;align-items:center;
-      justify-content:center;background:linear-gradient(135deg,#0d1b2a 0%,#1a3a5c 50%,#1a56db 100%);
-      font-family:'DM Sans',system-ui,sans-serif">
-      <div style="background:#fff;border-radius:20px;padding:44px 40px;width:100%;max-width:400px;
-        box-shadow:0 24px 60px rgba(0,0,0,.3);margin:16px">
-        <!-- Logo -->
-        <div style="text-align:center;margin-bottom:32px">
-          <div style="width:60px;height:60px;border-radius:16px;margin:0 auto 16px;
-            background:linear-gradient(135deg,#1a56db,#60a5fa);
+    <div id="loginPage" style="display:none;position:fixed;inset:0;z-index:9999;
+      font-family:'DM Sans',system-ui,sans-serif;overflow:hidden">
+
+      <!-- Background: layered geometric pattern -->
+      <div style="position:absolute;inset:0;background:#0a1628"></div>
+
+      <!-- Animated grid lines -->
+      <svg style="position:absolute;inset:0;width:100%;height:100%;opacity:.07"
+        xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
+            <path d="M60 0H0V60" fill="none" stroke="#60a5fa" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)"/>
+      </svg>
+
+      <!-- Glowing orbs background -->
+      <div style="position:absolute;top:-20%;left:-10%;width:60%;height:70%;
+        background:radial-gradient(circle,rgba(26,86,219,.22) 0%,transparent 65%);
+        pointer-events:none"></div>
+      <div style="position:absolute;bottom:-20%;right:-10%;width:55%;height:65%;
+        background:radial-gradient(circle,rgba(14,159,110,.18) 0%,transparent 65%);
+        pointer-events:none"></div>
+      <div style="position:absolute;top:40%;left:50%;transform:translate(-50%,-50%);
+        width:40%;height:40%;
+        background:radial-gradient(circle,rgba(99,102,241,.12) 0%,transparent 70%);
+        pointer-events:none"></div>
+
+      <!-- Floating decorative elements -->
+      <div style="position:absolute;top:12%;left:8%;width:120px;height:120px;
+        border:1px solid rgba(96,165,250,.15);border-radius:16px;
+        transform:rotate(15deg)"></div>
+      <div style="position:absolute;top:20%;left:12%;width:60px;height:60px;
+        border:1px solid rgba(96,165,250,.12);border-radius:10px;
+        transform:rotate(30deg)"></div>
+      <div style="position:absolute;bottom:18%;right:8%;width:100px;height:100px;
+        border:1px solid rgba(52,211,153,.15);border-radius:50%"></div>
+      <div style="position:absolute;bottom:28%;right:14%;width:50px;height:50px;
+        border:1px solid rgba(52,211,153,.12);border-radius:50%"></div>
+      <div style="position:absolute;top:60%;left:5%;width:40px;height:40px;
+        background:rgba(26,86,219,.15);border-radius:8px;transform:rotate(20deg)"></div>
+      <div style="position:absolute;top:30%;right:6%;width:35px;height:35px;
+        background:rgba(14,159,110,.15);border-radius:50%"></div>
+
+      <!-- Left side branding panel (hidden on mobile) -->
+      <div style="position:absolute;left:0;top:0;bottom:0;width:46%;
+        display:flex;flex-direction:column;justify-content:center;
+        padding:48px 56px;box-sizing:border-box">
+
+        <!-- Logo mark -->
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:48px">
+          <div style="width:48px;height:48px;border-radius:12px;
+            background:linear-gradient(135deg,#1a56db,#3b82f6);
             display:flex;align-items:center;justify-content:center;
-            box-shadow:0 8px 20px rgba(26,86,219,.35)">
-            <i class="fas fa-landmark" style="color:#fff;font-size:26px"></i>
+            box-shadow:0 0 24px rgba(26,86,219,.4)">
+            <i class="fas fa-landmark" style="color:#fff;font-size:20px"></i>
           </div>
-          <div style="font-size:22px;font-weight:800;color:#0d1b2a;letter-spacing:-.02em">SIPADU</div>
-          <div style="font-size:12px;color:#8896a7;margin-top:4px">Monitoring Keuangan DIPA</div>
-        </div>
-        <!-- Form -->
-        <div style="margin-bottom:16px">
-          <label style="display:block;font-size:12px;font-weight:700;color:#4a5568;
-            text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Username</label>
-          <input id="loginUsername" type="text" placeholder="Masukkan username"
-            style="width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:10px;
-              font-size:14px;font-family:inherit;outline:none;transition:border-color .18s;
-              box-sizing:border-box"
-            onfocus="this.style.borderColor='#1a56db'"
-            onblur="this.style.borderColor='#e2e8f0'"
-            onkeydown="if(event.key==='Enter')document.getElementById('loginPassword').focus()"/>
-        </div>
-        <div style="margin-bottom:8px">
-          <label style="display:block;font-size:12px;font-weight:700;color:#4a5568;
-            text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Password</label>
-          <div style="position:relative">
-            <input id="loginPassword" type="password" placeholder="Masukkan password"
-              style="width:100%;padding:11px 44px 11px 14px;border:1.5px solid #e2e8f0;
-                border-radius:10px;font-size:14px;font-family:inherit;outline:none;
-                transition:border-color .18s;box-sizing:border-box"
-              onfocus="this.style.borderColor='#1a56db'"
-              onblur="this.style.borderColor='#e2e8f0'"
-              onkeydown="if(event.key==='Enter')doLogin()"/>
-            <button onclick="togglePwd()" style="position:absolute;right:12px;top:50%;
-              transform:translateY(-50%);background:none;border:none;cursor:pointer;
-              color:#8896a7;font-size:14px" id="btnTogglePwd">
-              <i class="fas fa-eye"></i>
-            </button>
+          <div>
+            <div style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-.02em">SIPADU</div>
+            <div style="font-size:11px;color:rgba(255,255,255,.45);letter-spacing:.08em;
+              text-transform:uppercase;margin-top:1px">v2.0 · SAKTI</div>
           </div>
         </div>
-        <div id="loginError" style="display:none;color:#c81e1e;font-size:12.5px;
-          margin-bottom:12px;padding:8px 12px;background:#fde8e8;border-radius:8px;
-          font-weight:500"></div>
-        <button onclick="doLogin()" id="btnLogin"
-          style="width:100%;padding:12px;background:linear-gradient(90deg,#1a56db,#3b82f6);
-            color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;
-            cursor:pointer;font-family:inherit;transition:opacity .18s;margin-top:8px;
-            box-shadow:0 4px 12px rgba(26,86,219,.3)">
-          <i class="fas fa-sign-in-alt" style="margin-right:8px"></i>Masuk
-        </button>
-        <div style="text-align:center;margin-top:20px;font-size:11.5px;color:#8896a7">
-          Sistem Informasi Pengelolaan Anggaran DIPA
+
+        <!-- Headline -->
+        <h1 style="font-size:38px;font-weight:800;color:#fff;line-height:1.15;
+          letter-spacing:-.03em;margin:0 0 20px">
+          Monitoring<br/>
+          <span style="color:#60a5fa">Anggaran</span><br/>
+          DIPA
+        </h1>
+        <p style="font-size:15px;color:rgba(255,255,255,.5);line-height:1.7;
+          margin:0 0 48px;max-width:320px">
+          Sistem Informasi Pengelolaan Anggaran DIPA — monitoring realisasi, target, dan serapan anggaran secara real-time.
+        </p>
+
+        <!-- Feature pills -->
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:28px;height:28px;border-radius:8px;
+              background:rgba(26,86,219,.3);display:flex;align-items:center;
+              justify-content:center;flex-shrink:0">
+              <i class="fas fa-chart-line" style="color:#60a5fa;font-size:12px"></i>
+            </div>
+            <span style="font-size:13.5px;color:rgba(255,255,255,.65)">Dashboard & Kurva S real-time</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:28px;height:28px;border-radius:8px;
+              background:rgba(14,159,110,.25);display:flex;align-items:center;
+              justify-content:center;flex-shrink:0">
+              <i class="fas fa-file-arrow-up" style="color:#34d399;font-size:12px"></i>
+            </div>
+            <span style="font-size:13.5px;color:rgba(255,255,255,.65)">Upload data SAKTI GLP039</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:28px;height:28px;border-radius:8px;
+              background:rgba(99,102,241,.25);display:flex;align-items:center;
+              justify-content:center;flex-shrink:0">
+              <i class="fas fa-cloud" style="color:#a5b4fc;font-size:12px"></i>
+            </div>
+            <span style="font-size:13.5px;color:rgba(255,255,255,.65)">Database cloud Supabase</span>
+          </div>
         </div>
       </div>
+
+      <!-- Right side: login card -->
+      <div style="position:absolute;right:0;top:0;bottom:0;width:54%;
+        display:flex;align-items:center;justify-content:center;
+        padding:24px;box-sizing:border-box">
+
+        <div style="width:100%;max-width:420px;
+          background:rgba(255,255,255,.04);
+          border:1px solid rgba(255,255,255,.09);
+          border-radius:24px;padding:44px 40px;
+          backdrop-filter:blur(12px);
+          box-shadow:0 32px 64px rgba(0,0,0,.4)">
+
+          <!-- Card header -->
+          <div style="margin-bottom:32px">
+            <div style="font-size:24px;font-weight:800;color:#fff;
+              letter-spacing:-.02em;margin-bottom:6px">Selamat datang</div>
+            <div style="font-size:14px;color:rgba(255,255,255,.45)">
+              Masuk ke akun SIPADU Anda
+            </div>
+          </div>
+
+          <!-- Username -->
+          <div style="margin-bottom:16px">
+            <label style="display:block;font-size:11.5px;font-weight:700;
+              color:rgba(255,255,255,.5);text-transform:uppercase;
+              letter-spacing:.08em;margin-bottom:8px">Username</label>
+            <div style="position:relative">
+              <i class="fas fa-user" style="position:absolute;left:14px;top:50%;
+                transform:translateY(-50%);color:rgba(255,255,255,.3);font-size:14px"></i>
+              <input id="loginUsername" type="text" placeholder="Masukkan username"
+                style="width:100%;padding:12px 14px 12px 42px;
+                  background:rgba(255,255,255,.07);
+                  border:1px solid rgba(255,255,255,.12);
+                  border-radius:12px;font-size:14px;color:#fff;
+                  font-family:inherit;outline:none;box-sizing:border-box;
+                  transition:border-color .18s,background .18s"
+                onfocus="this.style.borderColor='rgba(96,165,250,.6)';this.style.background='rgba(255,255,255,.1)'"
+                onblur="this.style.borderColor='rgba(255,255,255,.12)';this.style.background='rgba(255,255,255,.07)'"
+                onkeydown="if(event.key==='Enter')document.getElementById('loginPassword').focus()"/>
+            </div>
+          </div>
+
+          <!-- Password -->
+          <div style="margin-bottom:10px">
+            <label style="display:block;font-size:11.5px;font-weight:700;
+              color:rgba(255,255,255,.5);text-transform:uppercase;
+              letter-spacing:.08em;margin-bottom:8px">Password</label>
+            <div style="position:relative">
+              <i class="fas fa-lock" style="position:absolute;left:14px;top:50%;
+                transform:translateY(-50%);color:rgba(255,255,255,.3);font-size:14px"></i>
+              <input id="loginPassword" type="password" placeholder="Masukkan password"
+                style="width:100%;padding:12px 44px 12px 42px;
+                  background:rgba(255,255,255,.07);
+                  border:1px solid rgba(255,255,255,.12);
+                  border-radius:12px;font-size:14px;color:#fff;
+                  font-family:inherit;outline:none;box-sizing:border-box;
+                  transition:border-color .18s,background .18s"
+                onfocus="this.style.borderColor='rgba(96,165,250,.6)';this.style.background='rgba(255,255,255,.1)'"
+                onblur="this.style.borderColor='rgba(255,255,255,.12)';this.style.background='rgba(255,255,255,.07)'"
+                onkeydown="if(event.key==='Enter')doLogin()"/>
+              <button onclick="togglePwd()" id="btnTogglePwd"
+                style="position:absolute;right:12px;top:50%;transform:translateY(-50%);
+                  background:none;border:none;cursor:pointer;
+                  color:rgba(255,255,255,.35);font-size:14px;padding:4px">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Error message -->
+          <div id="loginError" style="display:none;color:#fca5a5;font-size:12.5px;
+            margin-bottom:14px;padding:10px 14px;
+            background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.25);
+            border-radius:10px;font-weight:500"></div>
+
+          <!-- Submit button -->
+          <button onclick="doLogin()" id="btnLogin"
+            style="width:100%;padding:13px;margin-top:10px;
+              background:linear-gradient(90deg,#1a56db,#3b82f6);
+              color:#fff;border:none;border-radius:12px;
+              font-size:15px;font-weight:700;cursor:pointer;
+              font-family:inherit;letter-spacing:.01em;
+              box-shadow:0 8px 24px rgba(26,86,219,.4);
+              transition:opacity .18s,transform .18s"
+            onmouseover="this.style.opacity='.9';this.style.transform='translateY(-1px)'"
+            onmouseout="this.style.opacity='1';this.style.transform='none'">
+            <i class="fas fa-sign-in-alt" style="margin-right:8px"></i>Masuk
+          </button>
+
+          <!-- Footer -->
+          <div style="text-align:center;margin-top:24px;
+            font-size:11.5px;color:rgba(255,255,255,.25)">
+            Politeknik Ilmu Pelayaran Makassar
+          </div>
+        </div>
+      </div>
+
+      <!-- Mobile: hide left panel via inline media would need JS, handle via display -->
     </div>
 
     <!-- ══════ APP (hidden until login) ══════ -->
@@ -114,12 +258,13 @@
           <i class="fas fa-coins"></i> Modul Keuangan
         </div>
         <div class="sb-sec">Sistem</div>
-        <div
-          class="nav-item"
-          id="nav-pengaturan"
-          onclick="switchPage('pengaturan', this)"
-        >
-          <i class="fas fa-gear"></i> Pengaturan
+        <div class="nav-item" id="nav-pengaturan"
+          onclick="switchPage('pengaturan',this);switchPengaturanTab('data')">
+          <i class="fas fa-database"></i> Pengaturan Data
+        </div>
+        <div class="nav-item" id="nav-manajemen"
+          onclick="switchPage('pengaturan',this);switchPengaturanTab('akun')">
+          <i class="fas fa-users-gear"></i> Manajemen Akun
         </div>
       </nav>
       <div class="sb-footer">
@@ -406,9 +551,27 @@
         <div class="page" id="page-pengaturan">
           <div class="pg-hdr">
             <div>
-              <div class="pg-title">Pengaturan Sistem</div>
-              <div class="pg-sub">Konfigurasi Anggaran Blokir &amp; Data SAKTI</div>
+              <div class="pg-title" id="pgSettingTitle">Pengaturan Data</div>
+              <div class="pg-sub" id="pgSettingSub">Konfigurasi data anggaran, blokir, target, dan realisasi</div>
             </div>
+          </div>
+
+          <!-- Tab navigation -->
+          <div style="display:flex;gap:4px;margin-bottom:18px;
+            background:var(--bg);border:1px solid var(--bd);
+            border-radius:var(--r2);padding:4px;width:fit-content">
+            <button id="tabBtnData" onclick="switchPengaturanTab('data')"
+              style="padding:7px 20px;border-radius:var(--r1);font-size:13px;
+                font-weight:600;border:none;cursor:pointer;transition:all .18s;
+                background:var(--blue);color:#fff;font-family:var(--font)">
+              <i class="fas fa-database" style="margin-right:6px"></i>Pengaturan Data
+            </button>
+            <button id="tabBtnAkun" onclick="switchPengaturanTab('akun')"
+              style="padding:7px 20px;border-radius:var(--r1);font-size:13px;
+                font-weight:600;border:none;cursor:pointer;transition:all .18s;
+                background:transparent;color:var(--t2);font-family:var(--font)">
+              <i class="fas fa-users-gear" style="margin-right:6px"></i>Manajemen Akun
+            </button>
           </div>
 
           <!-- Anggaran Blokir Form -->
@@ -482,6 +645,8 @@
             </div>
           </div>
 
+          <!-- TAB: Pengaturan Data -->
+          <div id="tabPaneData" style="display:block">
           <!-- Realisasi Bulanan Upload -->
           <div class="section" style="margin-bottom:16px">
             <div class="sec-hdr">
@@ -652,7 +817,10 @@
               </button>
             </div>
           </div>
+          </div>
 
+          <!-- TAB: Manajemen Akun -->
+          <div id="tabPaneAkun" style="display:none">
           <!-- Manajemen Akun (admin only) -->
           <div class="section" id="sectionManajemenUser" style="margin-top:16px">
             <div class="sec-hdr">
@@ -712,7 +880,7 @@
               </table>
             </div>
           </div>
-
+          </div>
         </div>
       </main>
     </div>
