@@ -164,7 +164,6 @@ function togglePwd() {
 function showApp(user) {
   document.getElementById('loginPage').style.display = 'none';
   var aw = document.getElementById('appWrap');
-  aw.style.display = '';
   aw.classList.add('visible');
 
   // Update badge user di topnav
@@ -185,7 +184,6 @@ function showApp(user) {
   var dashPg = document.getElementById('page-dashboard');
   if (dashPg) {
     dashPg.style.display = 'block';
-    dashPg.style.visibility = 'visible';
     dashPg.classList.add('active');
   }
   // Aktifkan nav dashboard
@@ -242,7 +240,6 @@ function doLogout() {
   // Kembali ke login
   var _aw = document.getElementById('appWrap');
   _aw.classList.remove('visible');
-  _aw.style.display = '';
   document.getElementById('loginPage').style.display = 'block';
 }
 
@@ -573,13 +570,11 @@ function switchPage(pageId, navEl) {
   // Reset semua page
   document.querySelectorAll('.page').forEach(function(p){
     p.style.display = 'none';
-    p.style.visibility = 'hidden';
     p.classList.remove('active');
   });
   var pg = document.getElementById('page-' + pageId);
   if (pg) {
     pg.style.display = 'block';
-    pg.style.visibility = 'visible';
     pg.classList.add('active');
   }
   document.querySelectorAll('.nav-item').forEach(function (n) { n.classList.remove('active'); });
@@ -2791,16 +2786,13 @@ function _activatePengaturan(tab, navEl) {
 
   // Sembunyikan semua page
   document.querySelectorAll('.page').forEach(function(p){
-    p.style.cssText = p.style.cssText.replace(/display[^;]+;?/g,'');
     p.style.display = 'none';
     p.classList.remove('active');
   });
-  // Tampilkan page-pengaturan — paksa dengan !important via setAttribute
+  // Tampilkan page-pengaturan
   var pg = document.getElementById('page-pengaturan');
   if (pg) {
     pg.style.display = 'block';
-    pg.style.visibility = 'visible';
-    pg.style.opacity = '1';
     pg.classList.add('active');
   }
 
@@ -2808,17 +2800,11 @@ function _activatePengaturan(tab, navEl) {
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
   if (navEl) navEl.classList.add('active');
 
-  // Tab pane visibility — set semua property penting
+  // Tab pane — display saja, tanpa visibility
   var pData = document.getElementById('tabPaneData');
   var pAkun = document.getElementById('tabPaneAkun');
-  if (pData) {
-    pData.style.display    = isData ? 'block' : 'none';
-    pData.style.visibility = isData ? 'visible' : 'hidden';
-  }
-  if (pAkun) {
-    pAkun.style.display    = isData ? 'none' : 'block';
-    pAkun.style.visibility = isData ? 'hidden' : 'visible';
-  }
+  if (pData) pData.style.display = isData ? 'block' : 'none';
+  if (pAkun) pAkun.style.display = isData ? 'none'  : 'block';
 
   // Header
   var title = document.getElementById('pgSettingTitle');
