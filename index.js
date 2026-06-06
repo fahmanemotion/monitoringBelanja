@@ -170,9 +170,22 @@ function showApp(user) {
   var roleEl = document.getElementById('userBadgeRole');
   if (nameEl) nameEl.textContent = user.username;
   if (roleEl) {
-    roleEl.textContent  = user.role === 'admin' ? 'Admin' : 'User';
+    roleEl.textContent      = user.role === 'admin' ? 'Admin' : 'User';
     roleEl.style.background = user.role === 'admin' ? '#1a56db' : '#0e9f6e';
   }
+
+  // Aktifkan dashboard sebagai halaman pertama
+  // (gunakan style.display langsung agar konsisten)
+  document.querySelectorAll('.page').forEach(function(p){
+    p.style.display = 'none';
+    p.classList.remove('active');
+  });
+  var dashPg = document.getElementById('page-dashboard');
+  if (dashPg) { dashPg.style.display = 'block'; dashPg.classList.add('active'); }
+  // Aktifkan nav dashboard
+  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+  var navDash = document.getElementById('nav-dashboard');
+  if (navDash) navDash.classList.add('active');
 
   // Batasi akses untuk role user (view only)
   applyRoleRestrictions(user.role);
@@ -549,9 +562,13 @@ function wireNavItems() {
 }
 
 function switchPage(pageId, navEl) {
-  document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
+  // Reset semua page — gunakan style.display agar konsisten dengan _activatePengaturan
+  document.querySelectorAll('.page').forEach(function(p){
+    p.style.display = 'none';
+    p.classList.remove('active');
+  });
   var pg = document.getElementById('page-' + pageId);
-  if (pg) pg.classList.add('active');
+  if (pg) { pg.style.display = 'block'; pg.classList.add('active'); }
   document.querySelectorAll('.nav-item').forEach(function (n) { n.classList.remove('active'); });
   if (navEl) navEl.classList.add('active');
   var icons  = { dashboard: 'fa-gauge-high', keuangan: 'fa-coins', pengaturan: 'fa-gear' };
@@ -2728,6 +2745,84 @@ function switchPengaturanTab(tab) {
   if (window.innerWidth <= 680) {
     document.getElementById('sidebar').classList.remove('mob-open');
     document.getElementById('sbOverlay').classList.remove('mob-open');
+  }
+}
+
+/**
+ * goToPengaturanData — navigasi ke halaman Pengaturan Data via sidebar
+ */
+function goToPengaturanData(navEl) {
+  if (APP.viewOnly) {
+    toast('error','Akses Ditolak','Halaman Pengaturan hanya untuk Admin');
+    return;
+  }
+  _activatePengaturan('data', navEl);
+}
+
+function goToManajemenAkun(navEl) {
+  if (APP.viewOnly) {
+    toast('error','Akses Ditolak','Halaman ini hanya untuk Admin');
+    return;
+  }
+  _activatePengaturan('akun', navEl);
+  if (APP.currentUser && APP.currentUser.role === 'admin') loadUsers();
+}
+
+/**
+ * _activatePengaturan — inti aktivasi halaman pengaturan + tab
+ * Menggunakan display style langsung (bukan classList) agar tidak
+ * bergantung pada CSS .page.active yang bisa tertimpa
+ */
+function _activatePengaturan(tab, navEl) {
+  var isData = (tab === 'data');
+
+  // Sembunyikan semua page, tampilkan page-pengaturan via display style
+  document.querySelectorAll('.page').forEach(function(p){
+    p.style.display = 'none';
+    p.classList.remove('active');
+  });
+  var pg = document.getElementById('page-pengaturan');
+  if (pg) { pg.style.display = 'block'; pg.classList.add('active'); }
+
+  // Aktifkan nav item
+  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+  if (navEl) navEl.classList.add('active');
+
+  // Tab pane visibility
+  var pData = document.getElementById('tabPaneData');
+  var pAkun = document.getElementById('tabPaneAkun');
+  if (pData) pData.style.display = isData ? 'block' : 'none';
+  if (pAkun) pAkun.style.display = isData ? 'none'  : 'block';
+
+  // Header
+  var title = document.getElementById('pgSettingTitle');
+  var sub   = document.getElementById('pgSettingSub');
+  if (title) title.textContent = isData ? 'Pengaturan Data' : 'Manajemen Akun';
+  if (sub)   sub.textContent   = isData
+    ? 'Konfigurasi data anggaran, blokir, target, dan realisasi'
+    : 'Kelola akun admin dan user yang dapat mengakses SIPADU';
+
+  // Breadcrumb
+  var bci = document.getElementById('bcIcon');
+  var bct = document.getElementById('bcText');
+  if (bci) bci.className   = isData ? 'fas fa-database' : 'fas fa-users-gear';
+  if (bct) bct.textContent  = isData ? 'Pengaturan Data' : 'Manajemen Akun';
+
+  // Topnav: sembunyikan Upload+tema+TA saat Manajemen Akun
+  var up  = document.getElementById('uploadBtn');
+  var ta  = document.querySelector('.ta-chip');
+  var thm = document.getElementById('themeBtn');
+  var log = document.getElementById('btnLogout');
+  if (up)  up.style.display  = isData ? '' : 'none';
+  if (ta)  ta.style.display  = isData ? '' : 'none';
+  if (thm) thm.style.display = isData ? '' : 'none';
+
+  // Mobile: tutup sidebar
+  if (window.innerWidth <= 680) {
+    var sb  = document.getElementById('sidebar');
+    var sbo = document.getElementById('sbOverlay');
+    if (sb)  sb.classList.remove('mob-open');
+    if (sbo) sbo.classList.remove('mob-open');
   }
 }
 
