@@ -222,7 +222,7 @@ function doLogout() {
   CHARTS = {};
   // Kembali ke login
   document.getElementById('appWrap').style.display   = 'none';
-  document.getElementById('loginPage').style.display = 'flex';
+  document.getElementById('loginPage').style.display = 'block';
 }
 
 /* ── Manajemen Akun ────────────────────────────────────────────────────── */
@@ -356,7 +356,7 @@ document.addEventListener('DOMContentLoaded', function () {
   } catch(e) {}
 
   // Tidak ada session → tampilkan login
-  document.getElementById('loginPage').style.display = 'flex';
+  document.getElementById('loginPage').style.display = 'block';
   document.getElementById('appWrap').style.display   = 'none';
 });
 
