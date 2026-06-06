@@ -802,7 +802,34 @@
           <div class="pg-hdr">
             <div>
               <div class="pg-title">Manajemen Akun</div>
-              <div class="pg-sub">Kelola akun yang dapat mengakses SIPADU — atur role, tambah, atau hapus akun</div>
+              <div class="pg-sub" id="manajemenSub">Kelola akun yang dapat mengakses SIPADU — atur role, tambah, atau hapus akun</div>
+            </div>
+          </div>
+
+          <!-- Akun Saya (semua role) -->
+          <div class="section" id="sectionMyPassword" style="margin-bottom:16px">
+            <div class="sec-hdr">
+              <div class="sec-title-row">
+                <div class="sec-title">
+                  <i class="fas fa-user-shield" style="color:var(--teal);margin-right:6px"></i>
+                  Akun Saya
+                </div>
+              </div>
+              <p style="font-size:12px;color:var(--t3);margin-top:4px">
+                Ubah password akun yang sedang Anda gunakan untuk masuk ke SIPADU.
+              </p>
+            </div>
+            <div style="padding:16px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:12px">
+                <div class="sb-av" style="width:42px;height:42px;font-size:14px" id="myAvatar">AK</div>
+                <div>
+                  <div style="font-size:14px;font-weight:700;color:var(--t1)" id="myUsername">—</div>
+                  <div style="font-size:12px;color:var(--t3)" id="myRoleLabel">—</div>
+                </div>
+              </div>
+              <button class="btn-primary" onclick="openMyPasswordModal()">
+                <i class="fas fa-key"></i> Ubah Password Saya
+              </button>
             </div>
           </div>
 

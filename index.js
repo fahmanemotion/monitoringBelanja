@@ -185,21 +185,60 @@ function showApp(user) {
  * applyRoleRestrictions — sembunyikan fitur edit untuk role user
  */
 function applyRoleRestrictions(role) {
-  if (role === 'admin') return; // admin bisa semua
+  // Isi kartu "Akun Saya" untuk semua role
+  fillMyAccountCard();
 
-  // User: sembunyikan upload button, pengaturan nav, edit controls
+  if (role === 'admin') {
+    // Admin: tampilkan kembali semua bagian (jaga-jaga setelah logout/login ganti role)
+    var showIds = ['uploadBtn','keuUploadBtn','setUploadBtn','nav-pengaturan',
+                   'nav-manajemen','btnProcess','sectionManajemenUser'];
+    showIds.forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) el.style.display = '';
+    });
+    var sub = document.getElementById('manajemenSub');
+    if (sub) sub.textContent = 'Kelola akun yang dapat mengakses SIPADU — atur role, tambah, atau hapus akun';
+    APP.viewOnly = false;
+    return;
+  }
+
+  // User (view-only): sembunyikan fitur edit & manajemen penuh,
+  // TAPI tetap boleh akses Manajemen Akun untuk ubah password sendiri.
   var hideIds = ['uploadBtn','keuUploadBtn','setUploadBtn',
-                 'nav-pengaturan','nav-manajemen','btnProcess'];
+                 'nav-pengaturan','btnProcess','sectionManajemenUser'];
   hideIds.forEach(function(id){
     var el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
 
-  // Sembunyikan tab Keuangan (opsional — sesuai kebutuhan, uncomment jika perlu)
-  // document.getElementById('nav-keuangan').style.display = 'none';
+  // Sesuaikan subjudul halaman Manajemen Akun untuk user
+  var subEl = document.getElementById('manajemenSub');
+  if (subEl) subEl.textContent = 'Ubah password akun Anda';
 
   // Tandai app sebagai view-only
   APP.viewOnly = true;
+}
+
+/**
+ * fillMyAccountCard — isi info akun yang sedang login di kartu "Akun Saya"
+ */
+function fillMyAccountCard() {
+  var u = APP.currentUser;
+  if (!u) return;
+  var nameEl = document.getElementById('myUsername');
+  var roleEl = document.getElementById('myRoleLabel');
+  var avEl   = document.getElementById('myAvatar');
+  if (nameEl) nameEl.textContent = u.username;
+  if (roleEl) roleEl.textContent = (u.role === 'admin' ? 'Administrator' : 'User (lihat saja)');
+  if (avEl)   avEl.textContent   = (u.username || '?').slice(0,2).toUpperCase();
+}
+
+/**
+ * openMyPasswordModal — buka dialog ubah password untuk akun sendiri
+ */
+function openMyPasswordModal() {
+  if (!APP.currentUser) return;
+  openPwdModal(APP.currentUser.id, APP.currentUser.username);
 }
 
 /**
@@ -665,9 +704,9 @@ function wireNavItems() {
 }
 
 function switchPage(pageId, navEl) {
-  // Proteksi: cegah user (view-only) mengakses halaman admin
-  if ((pageId === 'pengaturan' || pageId === 'manajemen') && APP.viewOnly) {
-    toast('error','Akses Ditolak','Halaman ini hanya untuk Admin');
+  // Proteksi: halaman Pengaturan Data tetap khusus Admin
+  if (pageId === 'pengaturan' && APP.viewOnly) {
+    toast('error','Akses Ditolak','Halaman Pengaturan Data hanya untuk Admin');
     return;
   }
 
@@ -697,9 +736,10 @@ function switchPage(pageId, navEl) {
       Object.keys(CHARTS).forEach(function (k) { if (CHARTS[k]) CHARTS[k].resize(); });
     }, 50);
   }
-  // Muat daftar akun saat masuk halaman Manajemen Akun
-  if (pageId === 'manajemen' && APP.currentUser && APP.currentUser.role === 'admin') {
-    loadUsers();
+  // Halaman Manajemen Akun
+  if (pageId === 'manajemen' && APP.currentUser) {
+    fillMyAccountCard();
+    if (APP.currentUser.role === 'admin') loadUsers();
   }
 }
 
