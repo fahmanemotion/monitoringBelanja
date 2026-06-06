@@ -569,6 +569,16 @@ function switchPage(pageId, navEl) {
       Object.keys(CHARTS).forEach(function (k) { if (CHARTS[k]) CHARTS[k].resize(); });
     }, 50);
   }
+  // Restore topnav elements when leaving pengaturan akun tab
+  if (pageId !== 'pengaturan') {
+    var _up  = document.getElementById('uploadBtn');
+    var _ta  = document.querySelector('.ta-chip');
+    var _thm = document.getElementById('themeBtn');
+    if (_up)  _up.style.display  = '';
+    if (_ta)  _ta.style.display  = '';
+    if (_thm) _thm.style.display = '';
+    // Jika kembali ke pengaturan nanti, mulai dari tab Data
+  }
   // Cegah user mengakses pengaturan
   if (pageId === 'pengaturan' && APP.viewOnly) {
     switchPage('dashboard', document.getElementById('nav-dashboard'));
@@ -2654,6 +2664,14 @@ function renderRealisasiBulananTable() {
 function switchPengaturanTab(tab) {
   var isData = tab === 'data';
 
+  // Pastikan halaman pengaturan aktif dulu
+  var pgEl = document.getElementById('page-pengaturan');
+  if (!pgEl || !pgEl.classList.contains('active')) {
+    // Aktifkan halaman pengaturan
+    document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
+    if (pgEl) pgEl.classList.add('active');
+  }
+
   // Panel visibility
   var pData = document.getElementById('tabPaneData');
   var pAkun = document.getElementById('tabPaneAkun');
@@ -2680,16 +2698,36 @@ function switchPengaturanTab(tab) {
     ? 'Konfigurasi data anggaran, blokir, target, dan realisasi'
     : 'Kelola akun admin dan user yang dapat mengakses SIPADU';
 
+  // Update breadcrumb
+  var bci = document.getElementById('bcIcon');
+  var bct = document.getElementById('bcText');
+  if (bci) bci.className = isData ? 'fas fa-database' : 'fas fa-users-gear';
+  if (bct) bct.textContent = isData ? 'Pengaturan Data' : 'Manajemen Akun';
+
+  // Sembunyikan Upload SAKTI & TA chip saat di tab Manajemen Akun
+  var upBtn  = document.getElementById('uploadBtn');
+  var taChip = document.querySelector('.ta-chip');
+  var themBt = document.getElementById('themeBtn');
+  if (upBtn)  upBtn.style.display  = isData ? '' : 'none';
+  if (taChip) taChip.style.display = isData ? '' : 'none';
+  if (themBt) themBt.style.display = isData ? '' : 'none';
+
   // Update sidebar active state
+  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
   var navData = document.getElementById('nav-pengaturan');
   var navAkun = document.getElementById('nav-manajemen');
-  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
   if (isData && navData) navData.classList.add('active');
   if (!isData && navAkun) navAkun.classList.add('active');
 
   // Load users saat buka tab akun
   if (!isData && APP.currentUser && APP.currentUser.role === 'admin') {
     loadUsers();
+  }
+
+  // Tutup sidebar mobile
+  if (window.innerWidth <= 680) {
+    document.getElementById('sidebar').classList.remove('mob-open');
+    document.getElementById('sbOverlay').classList.remove('mob-open');
   }
 }
 
