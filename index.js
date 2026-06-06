@@ -256,26 +256,63 @@ function renderUserTable(users) {
     return;
   }
   tbody.innerHTML = users.map(function(u) {
-    var roleBadge = u.role === 'admin'
-      ? '<span style="padding:2px 8px;background:#dbeafe;color:#1e40af;border-radius:4px;font-size:11px;font-weight:700">Admin</span>'
-      : '<span style="padding:2px 8px;background:#def7ec;color:#057a55;border-radius:4px;font-size:11px;font-weight:700">User</span>';
     var dt = u.created_at ? new Date(u.created_at).toLocaleDateString('id-ID') : '-';
-    // Jangan tampilkan tombol hapus untuk akun yang sedang login
+    // Jangan izinkan ubah role / hapus untuk akun yang sedang login
     var isMe = APP.currentUser && APP.currentUser.id === u.id;
+
+    // Sel Role: dropdown editable (kecuali akun sendiri → badge statis)
+    var roleCell;
+    if (isMe) {
+      var selfBadge = u.role === 'admin'
+        ? '<span style="padding:2px 8px;background:#dbeafe;color:#1e40af;border-radius:4px;font-size:11px;font-weight:700">Admin</span>'
+        : '<span style="padding:2px 8px;background:#def7ec;color:#057a55;border-radius:4px;font-size:11px;font-weight:700">User</span>';
+      roleCell = selfBadge;
+    } else {
+      roleCell =
+        '<select class="role-select" onchange="updateUserRole(' + u.id +
+          ',this.value,&quot;' + esc(u.username) + '&quot;)">' +
+          '<option value="admin"' + (u.role === 'admin' ? ' selected' : '') + '>Admin</option>' +
+          '<option value="user"'  + (u.role === 'user'  ? ' selected' : '') + '>User</option>' +
+        '</select>';
+    }
+
     var delBtn = isMe
       ? '<span style="font-size:11px;color:var(--t3)">Akun ini</span>'
       : '<button onclick="deleteUser(' + u.id + ',&quot;' + esc(u.username) + '&quot;)" ' +
           'style="width:28px;height:28px;border-radius:4px;background:var(--red-l);' +
           'color:var(--red);font-size:12px;display:inline-flex;align-items:center;' +
-          'justify-content:center;cursor:pointer;border:none">' +
+          'justify-content:center;cursor:pointer;border:none" title="Hapus akun">' +
           '<i class="fas fa-trash"></i></button>';
     return '<tr>' +
       '<td style="font-weight:600;color:var(--t1)">' + esc(u.username) + '</td>' +
-      '<td style="text-align:center">' + roleBadge + '</td>' +
+      '<td style="text-align:center">' + roleCell + '</td>' +
       '<td style="font-size:12px;color:var(--t3)">' + dt + '</td>' +
       '<td style="text-align:center">' + delBtn + '</td>' +
     '</tr>';
   }).join('');
+}
+
+/**
+ * updateUserRole — ubah role akun (admin <-> user)
+ */
+async function updateUserRole(id, role, username) {
+  if (APP.currentUser && APP.currentUser.id === id) {
+    toast('error','Tidak Diizinkan','Tidak dapat mengubah role akun sendiri');
+    loadUsers();
+    return;
+  }
+  try {
+    await supaFetch('PATCH', 'app_users', {
+      query: 'id=eq.' + id,
+      body:  { role: role },
+    });
+    await loadUsers();
+    toast('success','Role Diperbarui',
+      username + ' sekarang berperan sebagai ' + (role === 'admin' ? 'Admin' : 'User'));
+  } catch(e) {
+    toast('error','Gagal Ubah Role', e.message);
+    loadUsers(); // kembalikan tampilan ke nilai sebenarnya
+  }
 }
 
 /**
@@ -549,13 +586,25 @@ function wireNavItems() {
 }
 
 function switchPage(pageId, navEl) {
+  // Proteksi: cegah user (view-only) mengakses halaman admin
+  if ((pageId === 'pengaturan' || pageId === 'manajemen') && APP.viewOnly) {
+    toast('error','Akses Ditolak','Halaman ini hanya untuk Admin');
+    return;
+  }
+
   document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
   var pg = document.getElementById('page-' + pageId);
   if (pg) pg.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(function (n) { n.classList.remove('active'); });
   if (navEl) navEl.classList.add('active');
-  var icons  = { dashboard: 'fa-gauge-high', keuangan: 'fa-coins', pengaturan: 'fa-gear' };
-  var labels = { dashboard: 'Dashboard', keuangan: 'Modul Keuangan', pengaturan: 'Pengaturan' };
+  else {
+    var fallback = document.getElementById('nav-' + pageId);
+    if (fallback) fallback.classList.add('active');
+  }
+  var icons  = { dashboard: 'fa-gauge-high', keuangan: 'fa-coins',
+                 pengaturan: 'fa-database', manajemen: 'fa-users-gear' };
+  var labels = { dashboard: 'Dashboard', keuangan: 'Modul Keuangan',
+                 pengaturan: 'Pengaturan Data', manajemen: 'Manajemen Akun' };
   var bci = document.getElementById('bcIcon');
   var bct = document.getElementById('bcText');
   if (bci) bci.className = 'fas ' + (icons[pageId] || 'fa-circle');
@@ -569,11 +618,9 @@ function switchPage(pageId, navEl) {
       Object.keys(CHARTS).forEach(function (k) { if (CHARTS[k]) CHARTS[k].resize(); });
     }, 50);
   }
-  // Cegah user mengakses pengaturan
-  if (pageId === 'pengaturan' && APP.viewOnly) {
-    switchPage('dashboard', document.getElementById('nav-dashboard'));
-    toast('error','Akses Ditolak','Halaman Pengaturan hanya untuk Admin');
-    return;
+  // Muat daftar akun saat masuk halaman Manajemen Akun
+  if (pageId === 'manajemen' && APP.currentUser && APP.currentUser.role === 'admin') {
+    loadUsers();
   }
 }
 
@@ -2649,47 +2696,15 @@ function renderRealisasiBulananTable() {
 
 
 /**
- * switchPengaturanTab — toggle antara tab Pengaturan Data dan Manajemen Akun
+ * switchPengaturanTab — DEPRECATED.
+ * Pengaturan Data & Manajemen Akun kini halaman mandiri.
+ * Disisakan sebagai pengalih agar pemanggilan lama tetap aman.
  */
 function switchPengaturanTab(tab) {
-  var isData = tab === 'data';
-
-  // Panel visibility
-  var pData = document.getElementById('tabPaneData');
-  var pAkun = document.getElementById('tabPaneAkun');
-  if (pData) pData.style.display = isData ? 'block' : 'none';
-  if (pAkun) pAkun.style.display = isData ? 'none'  : 'block';
-
-  // Tab button style
-  var bData = document.getElementById('tabBtnData');
-  var bAkun = document.getElementById('tabBtnAkun');
-  if (bData) {
-    bData.style.background = isData ? 'var(--blue)' : 'transparent';
-    bData.style.color      = isData ? '#fff'        : 'var(--t2)';
-  }
-  if (bAkun) {
-    bAkun.style.background = isData ? 'transparent' : 'var(--blue)';
-    bAkun.style.color      = isData ? 'var(--t2)'   : '#fff';
-  }
-
-  // Update page title & sub
-  var title = document.getElementById('pgSettingTitle');
-  var sub   = document.getElementById('pgSettingSub');
-  if (title) title.textContent = isData ? 'Pengaturan Data' : 'Manajemen Akun';
-  if (sub)   sub.textContent   = isData
-    ? 'Konfigurasi data anggaran, blokir, target, dan realisasi'
-    : 'Kelola akun admin dan user yang dapat mengakses SIPADU';
-
-  // Update sidebar active state
-  var navData = document.getElementById('nav-pengaturan');
-  var navAkun = document.getElementById('nav-manajemen');
-  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
-  if (isData && navData) navData.classList.add('active');
-  if (!isData && navAkun) navAkun.classList.add('active');
-
-  // Load users saat buka tab akun
-  if (!isData && APP.currentUser && APP.currentUser.role === 'admin') {
-    loadUsers();
+  if (tab === 'akun') {
+    switchPage('manajemen', document.getElementById('nav-manajemen'));
+  } else {
+    switchPage('pengaturan', document.getElementById('nav-pengaturan'));
   }
 }
 
