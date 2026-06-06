@@ -276,6 +276,12 @@ function renderUserTable(users) {
         '</select>';
     }
 
+    var pwdBtn =
+      '<button onclick="openPwdModal(' + u.id + ',&quot;' + esc(u.username) + '&quot;)" ' +
+        'style="width:28px;height:28px;border-radius:4px;background:var(--amber-l);' +
+        'color:var(--amber);font-size:12px;display:inline-flex;align-items:center;' +
+        'justify-content:center;cursor:pointer;border:none;margin-right:6px" title="Ubah password">' +
+        '<i class="fas fa-key"></i></button>';
     var delBtn = isMe
       ? '<span style="font-size:11px;color:var(--t3)">Akun ini</span>'
       : '<button onclick="deleteUser(' + u.id + ',&quot;' + esc(u.username) + '&quot;)" ' +
@@ -287,7 +293,7 @@ function renderUserTable(users) {
       '<td style="font-weight:600;color:var(--t1)">' + esc(u.username) + '</td>' +
       '<td style="text-align:center">' + roleCell + '</td>' +
       '<td style="font-size:12px;color:var(--t3)">' + dt + '</td>' +
-      '<td style="text-align:center">' + delBtn + '</td>' +
+      '<td style="text-align:center;white-space:nowrap">' + pwdBtn + delBtn + '</td>' +
     '</tr>';
   }).join('');
 }
@@ -312,6 +318,79 @@ async function updateUserRole(id, role, username) {
   } catch(e) {
     toast('error','Gagal Ubah Role', e.message);
     loadUsers(); // kembalikan tampilan ke nilai sebenarnya
+  }
+}
+
+/* ── Ubah Password ─────────────────────────────────────────────────────── */
+var PWD_TARGET = { id: null, username: '' };
+
+/**
+ * openPwdModal — buka dialog untuk mengatur password baru akun
+ */
+function openPwdModal(id, username) {
+  PWD_TARGET = { id: id, username: username };
+  document.getElementById('pwdModalUser').textContent = username;
+  document.getElementById('pwdNew').value     = '';
+  document.getElementById('pwdConfirm').value = '';
+  var err = document.getElementById('pwdModalErr');
+  err.style.display = 'none';
+  document.getElementById('pwdModal').classList.add('open');
+  setTimeout(function(){ document.getElementById('pwdNew').focus(); }, 60);
+}
+
+/**
+ * closePwdModal — tutup dialog ubah password
+ */
+function closePwdModal() {
+  document.getElementById('pwdModal').classList.remove('open');
+  PWD_TARGET = { id: null, username: '' };
+}
+
+/**
+ * togglePwdField — show/hide isi field password di modal
+ */
+function togglePwdField(inputId, btn) {
+  var inp = document.getElementById(inputId);
+  var ico = btn.querySelector('i');
+  if (inp.type === 'password') { inp.type = 'text';  ico.className = 'fas fa-eye-slash'; }
+  else                         { inp.type = 'password'; ico.className = 'fas fa-eye'; }
+}
+
+/**
+ * submitPwdChange — validasi & simpan password baru ke Supabase
+ */
+async function submitPwdChange() {
+  var pNew  = document.getElementById('pwdNew').value || '';
+  var pConf = document.getElementById('pwdConfirm').value || '';
+  var err   = document.getElementById('pwdModalErr');
+  var btn   = document.getElementById('btnSavePwd');
+
+  function showErr(msg){ err.textContent = msg; err.style.display = 'block'; }
+
+  if (!PWD_TARGET.id) { closePwdModal(); return; }
+  if (pNew.length < 6)  { showErr('Password minimal 6 karakter'); return; }
+  if (pNew !== pConf)   { showErr('Konfirmasi password tidak cocok'); return; }
+
+  err.style.display = 'none';
+  btn.disabled  = true;
+  btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Menyimpan...';
+
+  try {
+    var hashed = await hashPassword(pNew);
+    await supaFetch('PATCH', 'app_users', {
+      query: 'id=eq.' + PWD_TARGET.id,
+      body:  { password_hash: hashed },
+    });
+    var uname = PWD_TARGET.username;
+    var isMe  = APP.currentUser && APP.currentUser.id === PWD_TARGET.id;
+    closePwdModal();
+    toast('success','Password Diperbarui',
+      'Password ' + uname + ' berhasil diubah' + (isMe ? ' — gunakan password baru saat login berikutnya' : ''));
+  } catch(e) {
+    showErr('Gagal menyimpan: ' + e.message);
+  } finally {
+    btn.disabled  = false;
+    btn.innerHTML = '<i class="fas fa-floppy-disk"></i> Simpan Password';
   }
 }
 
@@ -2711,10 +2790,14 @@ function switchPengaturanTab(tab) {
 /* ── Keyboard shortcuts ─────────────────────────────────────── */
 function wireKeyboard() {
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') { closeModal(); closePwdModal(); }
   });
   document.getElementById('uploadModal').addEventListener('click', function (e) {
     if (e.target === this) closeModal();
+  });
+  var pwdM = document.getElementById('pwdModal');
+  if (pwdM) pwdM.addEventListener('click', function (e) {
+    if (e.target === this) closePwdModal();
   });
 }
 
