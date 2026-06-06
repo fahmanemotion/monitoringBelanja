@@ -18,11 +18,21 @@ async function supaFetch(method, table, opts) {
   opts = opts || {};
   var url = SUPA_URL + '/rest/v1/' + table;
   if (opts.query) url += '?' + opts.query;
+
+  // Bangun Prefer header
+  var preferParts = [];
+  if (opts.returning) preferParts.push('return=representation');
+  else                preferParts.push('return=minimal');
+  // Untuk upsert (POST dengan on_conflict), tambahkan merge-duplicates
+  if (method === 'POST' && opts.query && opts.query.includes('on_conflict')) {
+    preferParts.push('resolution=merge-duplicates');
+  }
+
   var headers = {
     'apikey':        SUPA_KEY,
     'Authorization': 'Bearer ' + SUPA_KEY,
     'Content-Type':  'application/json',
-    'Prefer':        opts.returning ? 'return=representation' : 'return=minimal',
+    'Prefer':        preferParts.join(','),
   };
   var res = await fetch(url, {
     method:  method,
