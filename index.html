@@ -259,11 +259,11 @@
         </div>
         <div class="sb-sec">Sistem</div>
         <div class="nav-item" id="nav-pengaturan"
-          onclick="switchPage('pengaturan',this);switchPengaturanTab('data')">
+          onclick="goToPengaturanData(this)">
           <i class="fas fa-database"></i> Pengaturan Data
         </div>
         <div class="nav-item" id="nav-manajemen"
-          onclick="switchPage('pengaturan',this);switchPengaturanTab('akun')">
+          onclick="goToManajemenAkun(this)">
           <i class="fas fa-users-gear"></i> Manajemen Akun
         </div>
       </nav>
@@ -556,23 +556,7 @@
             </div>
           </div>
 
-          <!-- Tab navigation -->
-          <div style="display:flex;gap:4px;margin-bottom:18px;
-            background:var(--bg);border:1px solid var(--bd);
-            border-radius:var(--r2);padding:4px;width:fit-content">
-            <button id="tabBtnData" onclick="switchPengaturanTab('data')"
-              style="padding:7px 20px;border-radius:var(--r1);font-size:13px;
-                font-weight:600;border:none;cursor:pointer;transition:all .18s;
-                background:var(--blue);color:#fff;font-family:var(--font)">
-              <i class="fas fa-database" style="margin-right:6px"></i>Pengaturan Data
-            </button>
-            <button id="tabBtnAkun" onclick="switchPengaturanTab('akun')"
-              style="padding:7px 20px;border-radius:var(--r1);font-size:13px;
-                font-weight:600;border:none;cursor:pointer;transition:all .18s;
-                background:transparent;color:var(--t2);font-family:var(--font)">
-              <i class="fas fa-users-gear" style="margin-right:6px"></i>Manajemen Akun
-            </button>
-          </div>
+
 
           <!-- TAB: Pengaturan Data -->
           <div id="tabPaneData" style="display:block">
@@ -883,10 +867,10 @@
                 </tbody>
               </table>
             </div>
-          </div
+          </div>
           </div>
 
-        </div>>
+        </div>
       </main>
     </div>
 
