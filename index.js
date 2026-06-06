@@ -163,7 +163,9 @@ function togglePwd() {
  */
 function showApp(user) {
   document.getElementById('loginPage').style.display = 'none';
-  document.getElementById('appWrap').style.display   = 'block';
+  var aw = document.getElementById('appWrap');
+  aw.style.display = '';
+  aw.classList.add('visible');
 
   // Update badge user di topnav
   var nameEl = document.getElementById('userBadgeName');
@@ -181,7 +183,11 @@ function showApp(user) {
     p.classList.remove('active');
   });
   var dashPg = document.getElementById('page-dashboard');
-  if (dashPg) { dashPg.style.display = 'block'; dashPg.classList.add('active'); }
+  if (dashPg) {
+    dashPg.style.display = 'block';
+    dashPg.style.visibility = 'visible';
+    dashPg.classList.add('active');
+  }
   // Aktifkan nav dashboard
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
   var navDash = document.getElementById('nav-dashboard');
@@ -234,7 +240,9 @@ function doLogout() {
   Object.keys(CHARTS).forEach(function(k){ if(CHARTS[k]) CHARTS[k].destroy(); });
   CHARTS = {};
   // Kembali ke login
-  document.getElementById('appWrap').style.display   = 'none';
+  var _aw = document.getElementById('appWrap');
+  _aw.classList.remove('visible');
+  _aw.style.display = '';
   document.getElementById('loginPage').style.display = 'block';
 }
 
@@ -562,13 +570,18 @@ function wireNavItems() {
 }
 
 function switchPage(pageId, navEl) {
-  // Reset semua page — gunakan style.display agar konsisten dengan _activatePengaturan
+  // Reset semua page
   document.querySelectorAll('.page').forEach(function(p){
     p.style.display = 'none';
+    p.style.visibility = 'hidden';
     p.classList.remove('active');
   });
   var pg = document.getElementById('page-' + pageId);
-  if (pg) { pg.style.display = 'block'; pg.classList.add('active'); }
+  if (pg) {
+    pg.style.display = 'block';
+    pg.style.visibility = 'visible';
+    pg.classList.add('active');
+  }
   document.querySelectorAll('.nav-item').forEach(function (n) { n.classList.remove('active'); });
   if (navEl) navEl.classList.add('active');
   var icons  = { dashboard: 'fa-gauge-high', keuangan: 'fa-coins', pengaturan: 'fa-gear' };
@@ -2776,23 +2789,36 @@ function goToManajemenAkun(navEl) {
 function _activatePengaturan(tab, navEl) {
   var isData = (tab === 'data');
 
-  // Sembunyikan semua page, tampilkan page-pengaturan via display style
+  // Sembunyikan semua page
   document.querySelectorAll('.page').forEach(function(p){
+    p.style.cssText = p.style.cssText.replace(/display[^;]+;?/g,'');
     p.style.display = 'none';
     p.classList.remove('active');
   });
+  // Tampilkan page-pengaturan — paksa dengan !important via setAttribute
   var pg = document.getElementById('page-pengaturan');
-  if (pg) { pg.style.display = 'block'; pg.classList.add('active'); }
+  if (pg) {
+    pg.style.display = 'block';
+    pg.style.visibility = 'visible';
+    pg.style.opacity = '1';
+    pg.classList.add('active');
+  }
 
   // Aktifkan nav item
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
   if (navEl) navEl.classList.add('active');
 
-  // Tab pane visibility
+  // Tab pane visibility — set semua property penting
   var pData = document.getElementById('tabPaneData');
   var pAkun = document.getElementById('tabPaneAkun');
-  if (pData) pData.style.display = isData ? 'block' : 'none';
-  if (pAkun) pAkun.style.display = isData ? 'none'  : 'block';
+  if (pData) {
+    pData.style.display    = isData ? 'block' : 'none';
+    pData.style.visibility = isData ? 'visible' : 'hidden';
+  }
+  if (pAkun) {
+    pAkun.style.display    = isData ? 'none' : 'block';
+    pAkun.style.visibility = isData ? 'hidden' : 'visible';
+  }
 
   // Header
   var title = document.getElementById('pgSettingTitle');
