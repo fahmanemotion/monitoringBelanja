@@ -1,52 +1,8 @@
 /* ================================================================
    SIPADU v2 — index.js
-   Parser : SAKTI GLP039 Laporan Fa Detail 16 Segmen
-   Backend: Supabase (PostgreSQL)
+   Parser: SAKTI GLP039 Laporan Fa Detail 16 Segmen
+   Vanilla JS — no frameworks, no build step
    ================================================================ */
-
-/* ── Supabase Config ──────────────────────────────────────────── */
-var SUPA_URL = 'https://npklotmmjighdrbgdjay.supabase.co';
-var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5wa2xvdG1tamlnaGRyYmdkamF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3MjY2MTYsImV4cCI6MjA5NjMwMjYxNn0.3HBW7eptFLSm83vcqqHjFVFdvrPZIwhtxUdGAQpcsnE';
-
-/**
- * supaFetch — wrapper fetch ke Supabase REST API
- * method : GET | POST | PATCH | DELETE
- * table  : nama tabel
- * opts   : { body, query, returning }
- */
-async function supaFetch(method, table, opts) {
-  opts = opts || {};
-  var url = SUPA_URL + '/rest/v1/' + table;
-  if (opts.query) url += '?' + opts.query;
-
-  // Bangun Prefer header
-  var preferParts = [];
-  if (opts.returning) preferParts.push('return=representation');
-  else                preferParts.push('return=minimal');
-  // Untuk upsert (POST dengan on_conflict), tambahkan merge-duplicates
-  if (method === 'POST' && opts.query && opts.query.includes('on_conflict')) {
-    preferParts.push('resolution=merge-duplicates');
-  }
-
-  var headers = {
-    'apikey':        SUPA_KEY,
-    'Authorization': 'Bearer ' + SUPA_KEY,
-    'Content-Type':  'application/json',
-    'Prefer':        preferParts.join(','),
-  };
-  var res = await fetch(url, {
-    method:  method,
-    headers: headers,
-    body:    opts.body ? JSON.stringify(opts.body) : undefined,
-  });
-  if (!res.ok) {
-    var err = await res.text();
-    throw new Error('Supabase ' + method + ' ' + table + ': ' + err);
-  }
-  if (method === 'DELETE' || !opts.returning) return null;
-  var text = await res.text();
-  return text ? JSON.parse(text) : null;
-}
 
 /* ── State ─────────────────────────────────────────────────── */
 var APP = {
@@ -73,426 +29,88 @@ var APP = {
   realWb: null,    // workbook FA Detail yang sedang disiapkan upload
   realParsed: null, // {bulanIdx, nilai, namaFile} hasil parse sebelum disimpan
   viewMonth: -1,   // -1 = semua bulan, 0-11 = filter bulan tertentu
-  // Auth
-  currentUser: null,  // { id, username, role } setelah login
 };
 var CHARTS = {};
 
 /* ── Boot ───────────────────────────────────────────────────── */
-
-/* ── Auth & Login ──────────────────────────────────────────────────────── */
-
-/**
- * hashPassword — simple SHA-256 hash via Web Crypto API
- */
-async function hashPassword(password) {
-  var encoder = new TextEncoder();
-  var data     = encoder.encode(password);
-  var hashBuf  = await crypto.subtle.digest('SHA-256', data);
-  var hashArr  = Array.from(new Uint8Array(hashBuf));
-  return hashArr.map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
-}
-
-/**
- * doLogin — validasi username+password ke tabel app_users di Supabase
- */
-async function doLogin() {
-  var username = (document.getElementById('loginUsername').value || '').trim().toLowerCase();
-  var password = document.getElementById('loginPassword').value || '';
-  var errEl    = document.getElementById('loginError');
-  var btnEl    = document.getElementById('btnLogin');
-
-  errEl.style.display = 'none';
-  if (!username || !password) {
-    errEl.textContent  = 'Username dan password wajib diisi';
-    errEl.style.display = 'block'; return;
-  }
-
-  btnEl.disabled   = true;
-  btnEl.innerHTML  = '<i class="fas fa-circle-notch fa-spin" style="margin-right:8px"></i>Memeriksa...';
-
-  try {
-    var hashed = await hashPassword(password);
-    var rows   = await supaFetch('GET', 'app_users', {
-      query: 'username=eq.' + encodeURIComponent(username) +
-             '&password_hash=eq.' + hashed +
-             '&select=id,username,role',
-      returning: true,
-    });
-
-    if (!rows || rows.length === 0) {
-      errEl.textContent  = 'Username atau password salah';
-      errEl.style.display = 'block';
-      btnEl.disabled     = false;
-      btnEl.innerHTML    = '<i class="fas fa-sign-in-alt" style="margin-right:8px"></i>Masuk';
-      return;
-    }
-
-    var user = rows[0];
-    APP.currentUser = user;
-    // Simpan session ke sessionStorage (hilang saat tab ditutup)
-    sessionStorage.setItem('sipadu_session', JSON.stringify(user));
-
-    // Tampilkan app
-    showApp(user);
-  } catch(e) {
-    errEl.textContent  = 'Gagal terhubung ke server: ' + e.message;
-    errEl.style.display = 'block';
-    btnEl.disabled     = false;
-    btnEl.innerHTML    = '<i class="fas fa-sign-in-alt" style="margin-right:8px"></i>Masuk';
-  }
-}
-
-/**
- * togglePwd — show/hide password field
- */
-function togglePwd() {
-  var inp = document.getElementById('loginPassword');
-  var ico = document.getElementById('btnTogglePwd').querySelector('i');
-  if (inp.type === 'password') {
-    inp.type = 'text';
-    ico.className = 'fas fa-eye-slash';
-  } else {
-    inp.type = 'password';
-    ico.className = 'fas fa-eye';
-  }
-}
-
-/**
- * showApp — sembunyikan login, tampilkan app sesuai role
- */
-function showApp(user) {
-  document.getElementById('loginPage').style.display = 'none';
-  var aw = document.getElementById('appWrap');
-  aw.classList.add('visible');
-
-  // Update badge user di topnav
-  var nameEl = document.getElementById('userBadgeName');
-  var roleEl = document.getElementById('userBadgeRole');
-  if (nameEl) nameEl.textContent = user.username;
-  if (roleEl) {
-    roleEl.textContent      = user.role === 'admin' ? 'Admin' : 'User';
-    roleEl.style.background = user.role === 'admin' ? '#1a56db' : '#0e9f6e';
-  }
-
-  // Aktifkan dashboard sebagai halaman pertama
-  // (gunakan style.display langsung agar konsisten)
-  document.querySelectorAll('.page').forEach(function(p){
-    p.style.display = 'none';
-    p.classList.remove('active');
-  });
-  var dashPg = document.getElementById('page-dashboard');
-  if (dashPg) {
-    dashPg.style.display = 'block';
-    dashPg.classList.add('active');
-  }
-  // Aktifkan nav dashboard
-  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
-  var navDash = document.getElementById('nav-dashboard');
-  if (navDash) navDash.classList.add('active');
-
-  // Batasi akses untuk role user (view only)
-  applyRoleRestrictions(user.role);
-
-  // Load data dari Supabase
-  loadAllFromSupabase();
-}
-
-/**
- * applyRoleRestrictions — sembunyikan fitur edit untuk role user
- */
-function applyRoleRestrictions(role) {
-  if (role === 'admin') return; // admin bisa semua
-
-  // User: sembunyikan upload button, pengaturan nav, edit controls
-  var hideIds = ['uploadBtn','keuUploadBtn','setUploadBtn',
-                 'nav-pengaturan','nav-manajemen','btnProcess'];
-  hideIds.forEach(function(id){
-    var el = document.getElementById(id);
-    if (el) el.style.display = 'none';
-  });
-
-  // Sembunyikan tab Keuangan (opsional — sesuai kebutuhan, uncomment jika perlu)
-  // document.getElementById('nav-keuangan').style.display = 'none';
-
-  // Tandai app sebagai view-only
-  APP.viewOnly = true;
-}
-
-/**
- * doLogout — hapus session dan kembali ke login
- */
-function doLogout() {
-  if (!confirm('Keluar dari SIPADU?')) return;
-  sessionStorage.removeItem('sipadu_session');
-  APP.currentUser = null;
-  APP.viewOnly    = false;
-  // Reset login form
-  document.getElementById('loginUsername').value  = '';
-  document.getElementById('loginPassword').value  = '';
-  document.getElementById('loginError').style.display = 'none';
-  document.getElementById('btnLogin').disabled    = false;
-  document.getElementById('btnLogin').innerHTML   =
-    '<i class="fas fa-sign-in-alt" style="margin-right:8px"></i>Masuk';
-  // Destroy charts
-  Object.keys(CHARTS).forEach(function(k){ if(CHARTS[k]) CHARTS[k].destroy(); });
-  CHARTS = {};
-  // Kembali ke login
-  var _aw = document.getElementById('appWrap');
-  _aw.classList.remove('visible');
-  document.getElementById('loginPage').style.display = 'block';
-}
-
-/* ── Manajemen Akun ────────────────────────────────────────────────────── */
-
-/**
- * loadUsers — ambil semua akun dari Supabase
- */
-async function loadUsers() {
-  try {
-    var rows = await supaFetch('GET', 'app_users', {
-      query: 'select=id,username,role,created_at&order=created_at',
-      returning: true,
-    });
-    renderUserTable(rows || []);
-  } catch(e) {
-    console.warn('loadUsers error:', e.message);
-  }
-}
-
-/**
- * renderUserTable — tampilkan daftar akun di pengaturan
- */
-function renderUserTable(users) {
-  var tbody  = document.getElementById('userTableBody');
-  var badge  = document.getElementById('userCount');
-  if (!tbody) return;
-  if (badge) badge.textContent = users.length + ' Akun';
-
-  if (users.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--t3)">Belum ada akun</td></tr>';
-    return;
-  }
-  tbody.innerHTML = users.map(function(u) {
-    var roleBadge = u.role === 'admin'
-      ? '<span style="padding:2px 8px;background:#dbeafe;color:#1e40af;border-radius:4px;font-size:11px;font-weight:700">Admin</span>'
-      : '<span style="padding:2px 8px;background:#def7ec;color:#057a55;border-radius:4px;font-size:11px;font-weight:700">User</span>';
-    var dt = u.created_at ? new Date(u.created_at).toLocaleDateString('id-ID') : '-';
-    // Jangan tampilkan tombol hapus untuk akun yang sedang login
-    var isMe = APP.currentUser && APP.currentUser.id === u.id;
-    var delBtn = isMe
-      ? '<span style="font-size:11px;color:var(--t3)">Akun ini</span>'
-      : '<button onclick="deleteUser(' + u.id + ',&quot;' + esc(u.username) + '&quot;)" ' +
-          'style="width:28px;height:28px;border-radius:4px;background:var(--red-l);' +
-          'color:var(--red);font-size:12px;display:inline-flex;align-items:center;' +
-          'justify-content:center;cursor:pointer;border:none">' +
-          '<i class="fas fa-trash"></i></button>';
-    return '<tr>' +
-      '<td style="font-weight:600;color:var(--t1)">' + esc(u.username) + '</td>' +
-      '<td style="text-align:center">' + roleBadge + '</td>' +
-      '<td style="font-size:12px;color:var(--t3)">' + dt + '</td>' +
-      '<td style="text-align:center">' + delBtn + '</td>' +
-    '</tr>';
-  }).join('');
-}
-
-/**
- * addUser — tambah akun baru
- */
-async function addUser() {
-  var username = (document.getElementById('newUsername').value || '').trim().toLowerCase();
-  var password = document.getElementById('newPassword').value || '';
-  var role     = document.getElementById('newRole').value;
-
-  if (!username) { toast('error','Username Kosong','Masukkan username'); return; }
-  if (password.length < 6) { toast('error','Password Terlalu Pendek','Minimal 6 karakter'); return; }
-  if (!/^[a-z0-9_]+$/.test(username)) {
-    toast('error','Username Tidak Valid','Hanya huruf kecil, angka, dan underscore'); return;
-  }
-
-  try {
-    var hashed = await hashPassword(password);
-    var rows   = await supaFetch('POST', 'app_users', {
-      body: [{ username: username, password_hash: hashed, role: role }],
-      returning: true,
-    });
-    if (!rows || rows.length === 0) throw new Error('Insert gagal');
-    document.getElementById('newUsername').value = '';
-    document.getElementById('newPassword').value = '';
-    await loadUsers();
-    toast('success', 'Akun Ditambahkan', username + ' (' + role + ') berhasil dibuat');
-  } catch(e) {
-    if (e.message.includes('duplicate') || e.message.includes('unique')) {
-      toast('error','Username Sudah Ada','Pilih username lain');
-    } else {
-      toast('error','Gagal Tambah', e.message);
-    }
-  }
-}
-
-/**
- * deleteUser — hapus akun
- */
-async function deleteUser(id, username) {
-  if (!confirm('Hapus akun "' + username + '"?')) return;
-  try {
-    await supaFetch('DELETE', 'app_users', { query: 'id=eq.' + id });
-    await loadUsers();
-    toast('info','Akun Dihapus', username + ' telah dihapus');
-  } catch(e) {
-    toast('error','Gagal Hapus', e.message);
-  }
-}
-
 document.addEventListener('DOMContentLoaded', function () {
-  // Theme tetap di localStorage
+  // Restore theme
   APP.theme = localStorage.getItem('sipadu_theme') || 'light';
   applyTheme(APP.theme);
 
-  // Wire UI
+  // Restore data from localStorage if available
+  // Restore data & blokir dari localStorage secara terpisah agar
+  // kegagalan parse data tidak menghapus blokir, dan sebaliknya
+  try {
+    var d = localStorage.getItem('sipadu_data_v3');
+    var m = localStorage.getItem('sipadu_meta_v3');
+    if (d) { APP.data = JSON.parse(d); APP.meta = JSON.parse(m || '{}'); }
+  } catch (e) {
+    console.warn('SIPADU: Gagal restore data SAKTI:', e.message);
+    APP.data = [];
+  }
+  try {
+    var b = localStorage.getItem('sipadu_blokir_v3');
+    if (b) {
+      var parsed = JSON.parse(b);
+      // Validasi: pastikan array dan tiap item punya field wajib
+      if (Array.isArray(parsed)) {
+        APP.blokir = parsed.filter(function(item) {
+          return item && typeof item.id !== 'undefined'
+                      && typeof item.nilai === 'number'
+                      && item.nilai > 0
+                      && item.uraian;
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('SIPADU: Gagal restore blokir:', e.message);
+    APP.blokir = [];
+  }
+  try {
+    var tb = localStorage.getItem('sipadu_target_bulanan_v3');
+    if (tb) { APP.targetBulanan = JSON.parse(tb); }
+  } catch (e) {
+    console.warn('SIPADU: Gagal restore target bulanan:', e.message);
+    APP.targetBulanan = [null,null,null,null,null,null,null,null,null,null,null,null];
+  }
+  try {
+    var td = localStorage.getItem('sipadu_target_detail_v3');
+    if (td) { APP._targetDetail = JSON.parse(td); }
+  } catch (e) { APP._targetDetail = null; }
+  try {
+    // Key realisasi bulanan menggunakan prefix berbeda agar tidak tertimpa reset data
+    var rb = localStorage.getItem('sipadu_real_bulanan_v3');
+    if (rb) { APP.realisasiBulanan = JSON.parse(rb); }
+  } catch (e) {
+    console.warn('SIPADU: Gagal restore realisasi bulanan:', e.message);
+    APP.realisasiBulanan = [null,null,null,null,null,null,null,null,null,null,null,null];
+  }
+
+  APP.filtered = APP.data.slice();
+
+  if (APP.data.length > 0) {
+    buildFilterOpts();
+    renderAll();       // includes renderBlokirTable + renderKPIs
+    updateOrgLabel();
+  } else {
+    showEmptyState();  // shows empty data message
+    renderKPIs();      // masih render KPI blokir walau data belum ada
+    renderBlokirTable(); // tampilkan tabel blokir yang sudah tersimpan
+    renderTargetBulananForm(); // tampilkan form target bulanan
+    renderRealisasiBulananTable(); // tampilkan tabel realisasi bulanan
+  }
+
   wireSidebar();
   wireNavItems();
   wireSourceTabs();
   wirePills();
   wireFilters();
   wireUpload();
-  wireRealUpload();
-  wireTargetUpload();
+  wireRealUpload();    // drop zone upload realisasi bulanan
+  wireTargetUpload();  // drop zone upload target bulanan
   wireKeyboard();
-
-  // Cek session yang masih aktif (sessionStorage)
-  try {
-    var sess = sessionStorage.getItem('sipadu_session');
-    if (sess) {
-      var user = JSON.parse(sess);
-      if (user && user.username && user.role) {
-        APP.currentUser = user;
-        showApp(user);
-        return; // showApp akan panggil loadAllFromSupabase
-      }
-    }
-  } catch(e) {}
-
-  // Tidak ada session → tampilkan login
-  document.getElementById('loginPage').style.display = 'block';
-  document.getElementById('appWrap').style.display   = 'none';
 });
-
-/**
- * showLoadingState — tampilkan indikator loading sebelum data siap
- */
-function showLoadingState() {
-  var kpiRow = document.getElementById('kpiRow');
-  if (kpiRow) kpiRow.innerHTML =
-    '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--t3)">' +
-    '<i class="fas fa-circle-notch fa-spin" style="font-size:28px;display:block;margin-bottom:12px"></i>' +
-    '<div style="font-size:14px;font-weight:600;color:var(--t2)">Memuat data dari Supabase...</div>' +
-    '</div>';
-}
-
-/**
- * loadAllFromSupabase — muat semua data dari Supabase saat boot
- */
-async function loadAllFromSupabase() {
-  try {
-    // Muat semua tabel secara paralel
-    var results = await Promise.all([
-      supaFetch('GET', 'sakti_data',        { query: 'select=*&order=id', returning: true }),
-      supaFetch('GET', 'metadata',          { query: 'select=*', returning: true }),
-      supaFetch('GET', 'blokir',            { query: 'select=*&order=id', returning: true }),
-      supaFetch('GET', 'target_bulanan',    { query: 'select=*&order=bulan_idx', returning: true }),
-      supaFetch('GET', 'realisasi_bulanan', { query: 'select=*&order=bulan_idx', returning: true }),
-    ]);
-
-    var saktiRows  = results[0] || [];
-    var metaRows   = results[1] || [];
-    var blokirRows = results[2] || [];
-    var targetRows = results[3] || [];
-    var realRows   = results[4] || [];
-
-    // ── Data SAKTI ──
-    APP.data = saktiRows.map(function(r) {
-      return {
-        id: r.id, kode: [r.prog_kode,r.kro_kode,r.ro_kode,r.akun_kode].filter(Boolean).join('.'),
-        prog_kode: r.prog_kode, prog_nama: r.prog_nama,
-        kro_kode:  r.kro_kode,  kro_nama:  r.kro_nama,
-        ro_kode:   r.ro_kode,   ro_full:   r.ro_full, ro_nama: r.ro_nama,
-        akun_kode: r.akun_kode, akun_nama: r.akun_nama,
-        jenis: r.jenis, sumber: r.sumber,
-        pagu: parseFloat(r.pagu)||0, realisasi: parseFloat(r.realisasi)||0,
-        realisasi_lalu: parseFloat(r.realisasi_lalu)||0,
-        realisasi_bulan: parseFloat(r.realisasi_bulan)||0,
-        sisa: parseFloat(r.sisa)||0, persen: parseFloat(r.persen)||0,
-        details: Array.isArray(r.details) ? r.details : (r.details ? JSON.parse(r.details) : []),
-      };
-    });
-
-    // ── Metadata ──
-    var metaMap = {};
-    metaRows.forEach(function(r){ metaMap[r.key] = r.value; });
-    if (metaMap.satker) APP.meta.satker      = metaMap.satker;
-    if (metaMap.ta)     APP.meta.ta          = metaMap.ta;
-    if (metaMap.periode)APP.meta.periode     = metaMap.periode;
-    if (metaMap.kode_satker) APP.meta.kode_satker = metaMap.kode_satker;
-
-    // ── Blokir ──
-    APP.blokir = blokirRows.map(function(r){
-      return { id: r.id, uraian: r.uraian, nilai: parseFloat(r.nilai)||0, sumber: r.sumber };
-    });
-
-    // ── Target Bulanan ──
-    APP.targetBulanan  = new Array(12).fill(null);
-    APP._targetDetail  = new Array(12).fill(null);
-    targetRows.forEach(function(r){
-      var i = r.bulan_idx;
-      if (i >= 0 && i <= 11) {
-        APP.targetBulanan[i]  = parseFloat(r.total) || null;
-        APP._targetDetail[i]  = {
-          r51: parseFloat(r.r51)||0, r52: parseFloat(r.r52)||0,
-          r53: parseFloat(r.r53)||0, total: parseFloat(r.total)||0,
-          src: r.src || 'upload'
-        };
-      }
-    });
-
-    // ── Realisasi Bulanan ──
-    APP.realisasiBulanan = new Array(12).fill(null);
-    realRows.forEach(function(r){
-      var i = r.bulan_idx;
-      if (i >= 0 && i <= 11) {
-        APP.realisasiBulanan[i] = {
-          nilai: parseFloat(r.nilai)||0,
-          namaFile: r.nama_file || '',
-          tanggalUpdate: r.tanggal_update || '',
-        };
-      }
-    });
-
-    APP.filtered = APP.data.slice();
-
-    if (APP.data.length > 0) {
-      buildFilterOpts();
-      renderAll();
-      updateOrgLabel();
-    } else {
-      showEmptyState();
-      renderKPIs();
-      renderBlokirTable();
-      renderTargetBulananForm();
-      renderRealisasiBulananTable();
-    }
-
-  } catch(err) {
-    console.error('SIPADU Supabase load error:', err);
-    toast('error', 'Gagal Load Data',
-      'Tidak dapat terhubung ke database. Cek koneksi internet. (' + err.message + ')');
-    showEmptyState();
-    renderKPIs();
-    renderBlokirTable();
-    renderTargetBulananForm();
-    renderRealisasiBulananTable();
-  }
-}
 
 /* ── Empty state (no data loaded) ─────────────────────────── */
 function showEmptyState() {
@@ -567,16 +185,9 @@ function wireNavItems() {
 }
 
 function switchPage(pageId, navEl) {
-  // Reset semua page
-  document.querySelectorAll('.page').forEach(function(p){
-    p.style.display = 'none';
-    p.classList.remove('active');
-  });
+  document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
   var pg = document.getElementById('page-' + pageId);
-  if (pg) {
-    pg.style.display = 'block';
-    pg.classList.add('active');
-  }
+  if (pg) pg.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(function (n) { n.classList.remove('active'); });
   if (navEl) navEl.classList.add('active');
   var icons  = { dashboard: 'fa-gauge-high', keuangan: 'fa-coins', pengaturan: 'fa-gear' };
@@ -593,22 +204,6 @@ function switchPage(pageId, navEl) {
     setTimeout(function () {
       Object.keys(CHARTS).forEach(function (k) { if (CHARTS[k]) CHARTS[k].resize(); });
     }, 50);
-  }
-  // Restore topnav elements when leaving pengaturan akun tab
-  if (pageId !== 'pengaturan') {
-    var _up  = document.getElementById('uploadBtn');
-    var _ta  = document.querySelector('.ta-chip');
-    var _thm = document.getElementById('themeBtn');
-    if (_up)  _up.style.display  = '';
-    if (_ta)  _ta.style.display  = '';
-    if (_thm) _thm.style.display = '';
-    // Jika kembali ke pengaturan nanti, mulai dari tab Data
-  }
-  // Cegah user mengakses pengaturan
-  if (pageId === 'pengaturan' && APP.viewOnly) {
-    switchPage('dashboard', document.getElementById('nav-dashboard'));
-    toast('error','Akses Ditolak','Halaman Pengaturan hanya untuk Admin');
-    return;
   }
 }
 
@@ -1750,16 +1345,16 @@ function handleFile(files) {
   reader.readAsBinaryString(f);
 }
 
-async function processUpload() {
+function processUpload() {
   if (!APP.rawWb) { toast('error', 'Tidak Ada File', 'Pilih file terlebih dahulu'); return; }
   var lbl = document.getElementById('upbarLbl');
   var bar = document.getElementById('upbarFill');
   if (lbl) { lbl.textContent = 'Memproses data...'; bar.style.width = '50%'; }
 
-  // Use async IIFE so UI repaints and we can use await
-  await new Promise(function(resolve){ setTimeout(resolve, 50); });
-  try {
-    var result = parseSaktiWorkbook(APP.rawWb);
+  // Use setTimeout so the UI can repaint before heavy parsing
+  setTimeout(function () {
+    try {
+      var result = parseSaktiWorkbook(APP.rawWb);
       if (!result.records || result.records.length === 0) {
         toast('error', 'Gagal Parse',
           'Tidak ada data akun ditemukan. Pastikan file adalah GLP039 format 16 Segmen.');
@@ -1772,41 +1367,11 @@ async function processUpload() {
       APP.kegPage  = 1;
       APP.keuPage  = 1;
 
-      // Simpan ke Supabase
+      // Persist to localStorage
       try {
-        await supaFetch('DELETE', 'sakti_data', { query: 'id=gt.0' });
-        await supaFetch('DELETE', 'metadata',   { query: 'key=neq.null' });
-        var batchSize = 500;
-        for (var bi = 0; bi < result.records.length; bi += batchSize) {
-          var batch = result.records.slice(bi, bi + batchSize).map(function(r) {
-            return {
-              satker: result.meta.satker, kode_satker: result.meta.kode_satker,
-              ta: result.meta.ta, periode: result.meta.periode,
-              prog_kode: r.prog_kode, prog_nama: r.prog_nama,
-              kro_kode: r.kro_kode, kro_nama: r.kro_nama,
-              ro_kode: r.ro_kode, ro_full: r.ro_full, ro_nama: r.ro_nama,
-              akun_kode: r.akun_kode, akun_nama: r.akun_nama,
-              jenis: r.jenis, sumber: r.sumber,
-              pagu: r.pagu, realisasi: r.realisasi,
-              realisasi_lalu: r.realisasi_lalu, realisasi_bulan: r.realisasi_bulan,
-              sisa: r.sisa, persen: r.persen,
-              details: r.details || [],
-            };
-          });
-          await supaFetch('POST', 'sakti_data', { body: batch, returning: false });
-        }
-        var metaRows = [
-          { key: 'satker',      value: result.meta.satker      || '' },
-          { key: 'ta',          value: result.meta.ta          || '' },
-          { key: 'periode',     value: result.meta.periode     || '' },
-          { key: 'kode_satker', value: result.meta.kode_satker || '' },
-        ];
-        await supaFetch('POST', 'metadata', {
-          query: 'on_conflict=key', body: metaRows, returning: false,
-        });
-      } catch(saveErr) {
-        toast('error','Gagal Simpan','Tidak tersimpan ke database: ' + saveErr.message);
-      }
+        localStorage.setItem('sipadu_data_v3', JSON.stringify(APP.data));
+        localStorage.setItem('sipadu_meta_v3', JSON.stringify(APP.meta));
+      } catch (e) { /* quota exceeded — silent */ }
 
       buildFilterOpts();
       // Default view = bulan yang sesuai periode file
@@ -1826,6 +1391,7 @@ async function processUpload() {
       toast('error', 'Error Parsing', err.message);
       console.error(err);
     }
+  }, 50);
 }
 
 /* ── Org label ──────────────────────────────────────────────── */
@@ -1847,32 +1413,27 @@ function updateOrgLabel() {
 }
 
 /* ── Reset ──────────────────────────────────────────────────── */
-async function resetData() {
-  if (!confirm('Reset semua data SAKTI? (Data realisasi bulanan tidak akan dihapus)')) return;
+function resetData() {
   try {
-    await supaFetch('DELETE', 'sakti_data', { query: 'id=gt.0' });
-    await supaFetch('DELETE', 'metadata',   { query: 'key=neq.null' });
-    await supaFetch('DELETE', 'blokir',     { query: 'id=gt.0' });
-    await supaFetch('DELETE', 'target_bulanan', { query: 'id=gt.0' });
-    // Realisasi bulanan TIDAK dihapus (terkunci)
-  } catch(e) {
-    console.warn('resetData Supabase error:', e.message);
-  }
+    localStorage.removeItem('sipadu_data_v3');
+    localStorage.removeItem('sipadu_meta_v3');
+    localStorage.removeItem('sipadu_blokir_v3');
+    localStorage.removeItem('sipadu_target_bulanan_v3');
+    // CATATAN: 'sipadu_real_bulanan_v3' TIDAK dihapus di sini (data dikunci)
+    // Admin harus hapus manual via tombol "Hapus Semua" di form realisasi bulanan
+  } catch (e) {}
   APP.data = []; APP.filtered = []; APP.blokir = [];
-  APP.targetBulanan = [null,null,null,null,null,null,null,null,null,null,null,null];
-  APP._targetDetail = null;
-  APP.meta = { satker:'', ta:'', periode:'', kode_satker:'' };
+  APP.meta = { satker: '', ta: '', periode: '', kode_satker: '' };
   APP.kegPage = 1; APP.keuPage = 1; APP.rawWb = null;
   if (CHARTS.bulanan) { CHARTS.bulanan.destroy(); CHARTS.bulanan = null; }
   if (CHARTS.pie)     { CHARTS.pie.destroy();     CHARTS.pie     = null; }
-  ['fProg','fKRO','fRO','fAkun','fDetail'].forEach(function(id){
+  ['fProg','fKRO','fRO','fAkun','fDetail'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) while (el.options.length > 1) el.remove(1);
   });
   renderBlokirTable();
-  renderTargetBulananForm();
   showEmptyState();
-  toast('info','Reset','Data telah dihapus. Upload file SAKTI untuk memuat data baru.');
+  toast('info', 'Reset', 'Data telah dihapus. Upload file SAKTI untuk memuat data baru.');
 }
 
 
@@ -1891,73 +1452,76 @@ function formatBlokirInput(el) {
 /**
  * addBlokir — tambahkan entry blokir baru dari form input
  */
-async function addBlokir() {
-  var uraian   = (document.getElementById('blokirUraian').value || '').trim();
+function addBlokir() {
+  var uraian = (document.getElementById('blokirUraian').value || '').trim();
   var nilaiStr = (document.getElementById('blokirNilai').value || '').replace(/[^0-9]/g, '');
-  var sumber   = document.getElementById('blokirSumber').value;
+  var sumber = document.getElementById('blokirSumber').value;
 
-  if (!uraian) { toast('error', 'Uraian Kosong', 'Isi keterangan blokir terlebih dahulu'); return; }
-  if (!nilaiStr || parseInt(nilaiStr,10) === 0) {
-    toast('error', 'Nilai Tidak Valid', 'Masukkan nilai blokir yang valid'); return;
+  if (!uraian) { toast('error', 'Uraian Kosong', 'Isi keterangan/uraian blokir terlebih dahulu'); return; }
+  if (!nilaiStr || parseInt(nilaiStr, 10) === 0) {
+    toast('error', 'Nilai Tidak Valid', 'Masukkan nilai blokir yang valid (lebih dari 0)'); return;
   }
 
-  var nilai = parseInt(nilaiStr, 10);
-  try {
-    var rows = await supaFetch('POST', 'blokir',
-      { body: { uraian: uraian, nilai: nilai, sumber: sumber }, returning: true });
-    var saved = rows && rows[0];
-    if (!saved) throw new Error('Tidak ada data dikembalikan');
-    APP.blokir.push({ id: saved.id, uraian: saved.uraian, nilai: parseFloat(saved.nilai), sumber: saved.sumber });
-    document.getElementById('blokirUraian').value = '';
-    document.getElementById('blokirNilai').value  = '';
-    renderBlokirTable();
-    renderKPIs();
-    toast('success', 'Blokir Ditambahkan', uraian + ' — ' + fmtM(nilai) + ' (' + sumber.toUpperCase() + ')');
-  } catch(e) {
-    toast('error', 'Gagal Simpan', 'Tidak dapat menyimpan ke database: ' + e.message);
-  }
+  var entry = {
+    id:     Number(Date.now()),   // eksplisit Number untuk konsistensi tipe
+    uraian: uraian,
+    nilai:  parseInt(nilaiStr, 10),
+    sumber: sumber,
+  };
+
+  APP.blokir.push(entry);
+  saveBlokirToStorage();
+  renderBlokirTable();
+  renderKPIs();  // update dashboard KPI cards
+
+  // Reset form
+  document.getElementById('blokirUraian').value = '';
+  document.getElementById('blokirNilai').value  = '';
+  toast('success', 'Blokir Ditambahkan',
+    uraian + ' — ' + fmtM(entry.nilai) + ' (' + entry.sumber.toUpperCase() + ')');
 }
 
 /**
  * deleteBlokir — hapus satu entry blokir berdasarkan id
  */
-async function deleteBlokir(id) {
+function deleteBlokir(id) {
+  // Gunakan == (loose) bukan === agar tetap cocok setelah JSON parse/stringify
   id = Number(id);
-  try {
-    await supaFetch('DELETE', 'blokir', { query: 'id=eq.' + id });
-    APP.blokir = APP.blokir.filter(function(b){ return Number(b.id) !== id; });
-    renderBlokirTable();
-    renderKPIs();
-    toast('info', 'Dihapus', 'Entry blokir telah dihapus');
-  } catch(e) {
-    toast('error', 'Gagal Hapus', e.message);
-  }
+  APP.blokir = APP.blokir.filter(function (b) { return Number(b.id) !== id; });
+  saveBlokirToStorage();
+  renderBlokirTable();
+  renderKPIs();
+  toast('info', 'Dihapus', 'Entry blokir telah dihapus');
 }
 
 /**
  * clearAllBlokir — hapus semua entry blokir
  */
-async function clearAllBlokir() {
-  var count = APP.blokir.length;
-  if (count === 0) { toast('info', 'Kosong', 'Tidak ada data blokir'); return; }
-  if (!confirm('Hapus semua ' + count + ' entry anggaran blokir?')) return;
-  try {
-    await supaFetch('DELETE', 'blokir', { query: 'id=gt.0' });
-    APP.blokir = [];
-    renderBlokirTable();
-    renderKPIs();
-    toast('info', 'Semua Dihapus', 'Seluruh anggaran blokir telah dihapus');
-  } catch(e) {
-    toast('error', 'Gagal Hapus', e.message);
-  }
+function clearAllBlokir() {
+  if (APP.blokir.length === 0) { toast('info', 'Kosong', 'Tidak ada data blokir'); return; }
+  if (!confirm('Hapus semua ' + APP.blokir.length + ' entry anggaran blokir?')) return;
+  APP.blokir = [];
+  saveBlokirToStorage();
+  renderBlokirTable();
+  renderKPIs();
+  toast('info', 'Semua Dihapus', 'Seluruh anggaran blokir telah dihapus');
 }
 
 /**
  * saveBlokirToStorage — simpan ke localStorage
  */
 function saveBlokirToStorage() {
-  // Wrapper sinkron — tidak dipanggil langsung lagi
-  // Simpan via addBlokir / deleteBlokir yang sudah async
+  try {
+    var json = JSON.stringify(APP.blokir);
+    localStorage.setItem('sipadu_blokir_v3', json);
+    // Verifikasi: baca kembali untuk pastikan tersimpan benar
+    var verify = localStorage.getItem('sipadu_blokir_v3');
+    if (!verify) throw new Error('Verifikasi gagal: data tidak terbaca setelah disimpan');
+  } catch (e) {
+    console.warn('SIPADU: Gagal menyimpan blokir ke localStorage:', e.message);
+    toast('error', 'Gagal Menyimpan',
+      'Data blokir tidak tersimpan. Kemungkinan mode Incognito atau storage penuh.');
+  }
 }
 
 /**
@@ -2010,32 +1574,12 @@ var MONTHS_TARGET = ['Januari','Februari','Maret','April','Mei','Juni',
 /**
  * saveTargetBulanan — simpan ke localStorage
  */
-async function saveTargetBulanan() {
+function saveTargetBulanan() {
   try {
-    var rows = [];
-    for (var i = 0; i < 12; i++) {
-      var d = APP._targetDetail && APP._targetDetail[i];
-      if (!d) continue;
-      rows.push({
-        bulan_idx:  i,
-        r51:        d.r51   || 0,
-        r52:        d.r52   || 0,
-        r53:        d.r53   || 0,
-        total:      d.total || 0,
-        src:        d.src   || 'upload',
-        updated_at: new Date().toISOString(),
-      });
-    }
-    if (rows.length === 0) return;
-    // Upsert (insert or update) berdasarkan bulan_idx
-    await supaFetch('POST', 'target_bulanan', {
-      query: 'on_conflict=bulan_idx',
-      body: rows,
-      returning: false,
-    });
+    localStorage.setItem('sipadu_target_bulanan_v3', JSON.stringify(APP.targetBulanan));
+    localStorage.setItem('sipadu_target_detail_v3',  JSON.stringify(APP._targetDetail || []));
   } catch(e) {
-    console.warn('saveTargetBulanan error:', e.message);
-    toast('error','Gagal Simpan Target', e.message);
+    toast('error','Gagal Simpan','Target tidak tersimpan: ' + e.message);
   }
 }
 
@@ -2192,14 +1736,14 @@ function handleTargetFile(files) {
 /**
  * simpanTargetDariUpload — commit hasil parse ke APP state + localStorage
  */
-async function simpanTargetDariUpload() {
+function simpanTargetDariUpload() {
   if (!APP._targetParsed) {
     toast('error','Belum Ada Data','Upload file terlebih dahulu'); return;
   }
   var p = APP._targetParsed;
   APP._targetDetail  = p.data;
   APP.targetBulanan  = p.data.map(function(v){ return v ? v.total : null; });
-  await saveTargetBulanan();
+  saveTargetBulanan();
   renderTargetBulananForm();
   renderBulananChart();
 
@@ -2221,14 +1765,14 @@ async function simpanTargetDariUpload() {
 /**
  * resetTargetBulanan — hapus semua target, kembali ke kurva S otomatis
  */
-async function resetTargetBulanan() {
+function resetTargetBulanan() {
   var count = (APP.targetBulanan || []).filter(function(v){ return v; }).length;
   if (count === 0) { toast('info','Kosong','Belum ada data target'); return; }
   if (!confirm('Reset semua target ke distribusi otomatis kurva S?')) return;
   APP.targetBulanan  = [null,null,null,null,null,null,null,null,null,null,null,null];
   APP._targetDetail  = null;
   APP._targetParsed  = null;
-  await saveTargetBulanan();
+  saveTargetBulanan();
   renderTargetBulananForm();
   renderBulananChart();
   toast('info','Target Direset','Semua target kembali ke distribusi otomatis.');
@@ -2290,7 +1834,7 @@ function fmtTargetInput(el) {
 /**
  * commitEditTarget — simpan hasil edit satu baris, hitung ulang total
  */
-async function commitEditTarget(idx) {
+function commitEditTarget(idx) {
   function readInput(pfx) {
     var el = document.getElementById('inp_' + pfx + '_' + idx);
     if (!el) return 0;
@@ -2306,7 +1850,7 @@ async function commitEditTarget(idx) {
   APP._targetDetail[idx]  = { r51: r51, r52: r52, r53: r53, total: tot, src: 'manual' };
   APP.targetBulanan[idx]  = tot > 0 ? tot : null;
 
-  await saveTargetBulanan();
+  saveTargetBulanan();
   renderTargetBulananForm();   /* re-render penuh untuk update semua */
   renderBulananChart();
   toast('success', 'Target Disimpan',
@@ -2408,29 +1952,14 @@ var MONTHS_ID = ['Januari','Februari','Maret','April','Mei','Juni',
  * saveRealisasiBulanan — simpan ke localStorage dengan key terkunci
  * Key ini TIDAK dihapus oleh resetData() sehingga data aman meski file diganti
  */
-async function saveRealisasiBulanan() {
+function saveRealisasiBulanan() {
   try {
-    var rows = [];
-    for (var i = 0; i < 12; i++) {
-      var rb = APP.realisasiBulanan[i];
-      if (!rb) continue;
-      rows.push({
-        bulan_idx:      i,
-        nilai:          rb.nilai         || 0,
-        nama_file:      rb.namaFile      || '',
-        tanggal_update: rb.tanggalUpdate || '',
-        updated_at:     new Date().toISOString(),
-      });
-    }
-    if (rows.length === 0) return;
-    await supaFetch('POST', 'realisasi_bulanan', {
-      query: 'on_conflict=bulan_idx',
-      body: rows,
-      returning: false,
-    });
+    localStorage.setItem('sipadu_real_bulanan_v3', JSON.stringify(APP.realisasiBulanan));
+    var verify = localStorage.getItem('sipadu_real_bulanan_v3');
+    if (!verify) throw new Error('Verifikasi gagal');
   } catch(e) {
-    console.warn('saveRealisasiBulanan error:', e.message);
-    toast('error', 'Gagal Simpan Realisasi', e.message);
+    console.warn('Gagal simpan realisasi bulanan:', e.message);
+    toast('error','Gagal Menyimpan','Data realisasi bulanan tidak tersimpan: ' + e.message);
   }
 }
 
@@ -2567,7 +2096,7 @@ function handleRealFile(files) {
 /**
  * simpanRealisasiBulanan — simpan hasil parse ke APP.realisasiBulanan[bulanIdx]
  */
-async function simpanRealisasiBulanan() {
+function simpanRealisasiBulanan() {
   if (!APP.realParsed) {
     toast('error','Belum Ada Data','Upload file FA Detail terlebih dahulu'); return;
   }
@@ -2590,7 +2119,7 @@ async function simpanRealisasiBulanan() {
     tanggalUpdate: p.tanggalUpdate,
   };
 
-  await saveRealisasiBulanan();
+  saveRealisasiBulanan();
   renderRealisasiBulananTable();
   renderBulananChart();
 
@@ -2610,36 +2139,28 @@ async function simpanRealisasiBulanan() {
 /**
  * deleteRealisasiBulan — hapus data satu bulan
  */
-async function deleteRealisasiBulan(idx) {
+function deleteRealisasiBulan(idx) {
   var nama = MONTHS_ID[idx];
   if (!confirm('Hapus data realisasi ' + nama + '?')) return;
-  try {
-    await supaFetch('DELETE', 'realisasi_bulanan', { query: 'bulan_idx=eq.' + idx });
-    APP.realisasiBulanan[idx] = null;
-    renderRealisasiBulananTable();
-    renderBulananChart();
-    toast('info','Dihapus','Realisasi ' + nama + ' dihapus.');
-  } catch(e) {
-    toast('error','Gagal Hapus', e.message);
-  }
+  APP.realisasiBulanan[idx] = null;
+  saveRealisasiBulanan();
+  renderRealisasiBulananTable();
+  renderBulananChart();
+  toast('info','Dihapus','Realisasi ' + nama + ' dihapus.');
 }
 
 /**
  * clearAllRealisasiBulanan — hapus semua
  */
-async function clearAllRealisasiBulanan() {
+function clearAllRealisasiBulanan() {
   var count = APP.realisasiBulanan.filter(function(v){ return v !== null; }).length;
   if (count === 0) { toast('info','Kosong','Tidak ada data realisasi'); return; }
   if (!confirm('Hapus semua ' + count + ' data realisasi bulanan?')) return;
-  try {
-    await supaFetch('DELETE', 'realisasi_bulanan', { query: 'id=gt.0' });
-    APP.realisasiBulanan = [null,null,null,null,null,null,null,null,null,null,null,null];
-    renderRealisasiBulananTable();
-    renderBulananChart();
-    toast('info','Semua Dihapus','Seluruh data realisasi bulanan telah dihapus.');
-  } catch(e) {
-    toast('error','Gagal Hapus', e.message);
-  }
+  APP.realisasiBulanan = [null,null,null,null,null,null,null,null,null,null,null,null];
+  saveRealisasiBulanan();
+  renderRealisasiBulananTable();
+  renderBulananChart();
+  toast('info','Semua Dihapus','Seluruh data realisasi bulanan telah dihapus.');
 }
 
 /**
@@ -2680,162 +2201,6 @@ function renderRealisasiBulananTable() {
       '</td>' +
     '</tr>';
   }).filter(Boolean).join('');
-}
-
-
-/**
- * switchPengaturanTab — toggle antara tab Pengaturan Data dan Manajemen Akun
- */
-function switchPengaturanTab(tab) {
-  var isData = tab === 'data';
-
-  // Pastikan halaman pengaturan aktif dulu
-  var pgEl = document.getElementById('page-pengaturan');
-  if (!pgEl || !pgEl.classList.contains('active')) {
-    // Aktifkan halaman pengaturan
-    document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
-    if (pgEl) pgEl.classList.add('active');
-  }
-
-  // Panel visibility
-  var pData = document.getElementById('tabPaneData');
-  var pAkun = document.getElementById('tabPaneAkun');
-  if (pData) pData.style.display = isData ? 'block' : 'none';
-  if (pAkun) pAkun.style.display = isData ? 'none'  : 'block';
-
-  // Tab button style
-  var bData = document.getElementById('tabBtnData');
-  var bAkun = document.getElementById('tabBtnAkun');
-  if (bData) {
-    bData.style.background = isData ? 'var(--blue)' : 'transparent';
-    bData.style.color      = isData ? '#fff'        : 'var(--t2)';
-  }
-  if (bAkun) {
-    bAkun.style.background = isData ? 'transparent' : 'var(--blue)';
-    bAkun.style.color      = isData ? 'var(--t2)'   : '#fff';
-  }
-
-  // Update page title & sub
-  var title = document.getElementById('pgSettingTitle');
-  var sub   = document.getElementById('pgSettingSub');
-  if (title) title.textContent = isData ? 'Pengaturan Data' : 'Manajemen Akun';
-  if (sub)   sub.textContent   = isData
-    ? 'Konfigurasi data anggaran, blokir, target, dan realisasi'
-    : 'Kelola akun admin dan user yang dapat mengakses SIPADU';
-
-  // Update breadcrumb
-  var bci = document.getElementById('bcIcon');
-  var bct = document.getElementById('bcText');
-  if (bci) bci.className = isData ? 'fas fa-database' : 'fas fa-users-gear';
-  if (bct) bct.textContent = isData ? 'Pengaturan Data' : 'Manajemen Akun';
-
-  // Sembunyikan Upload SAKTI & TA chip saat di tab Manajemen Akun
-  var upBtn  = document.getElementById('uploadBtn');
-  var taChip = document.querySelector('.ta-chip');
-  var themBt = document.getElementById('themeBtn');
-  if (upBtn)  upBtn.style.display  = isData ? '' : 'none';
-  if (taChip) taChip.style.display = isData ? '' : 'none';
-  if (themBt) themBt.style.display = isData ? '' : 'none';
-
-  // Update sidebar active state
-  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
-  var navData = document.getElementById('nav-pengaturan');
-  var navAkun = document.getElementById('nav-manajemen');
-  if (isData && navData) navData.classList.add('active');
-  if (!isData && navAkun) navAkun.classList.add('active');
-
-  // Load users saat buka tab akun
-  if (!isData && APP.currentUser && APP.currentUser.role === 'admin') {
-    loadUsers();
-  }
-
-  // Tutup sidebar mobile
-  if (window.innerWidth <= 680) {
-    document.getElementById('sidebar').classList.remove('mob-open');
-    document.getElementById('sbOverlay').classList.remove('mob-open');
-  }
-}
-
-/**
- * goToPengaturanData — navigasi ke halaman Pengaturan Data via sidebar
- */
-function goToPengaturanData(navEl) {
-  if (APP.viewOnly) {
-    toast('error','Akses Ditolak','Halaman Pengaturan hanya untuk Admin');
-    return;
-  }
-  _activatePengaturan('data', navEl);
-}
-
-function goToManajemenAkun(navEl) {
-  if (APP.viewOnly) {
-    toast('error','Akses Ditolak','Halaman ini hanya untuk Admin');
-    return;
-  }
-  _activatePengaturan('akun', navEl);
-  if (APP.currentUser && APP.currentUser.role === 'admin') loadUsers();
-}
-
-/**
- * _activatePengaturan — inti aktivasi halaman pengaturan + tab
- * Menggunakan display style langsung (bukan classList) agar tidak
- * bergantung pada CSS .page.active yang bisa tertimpa
- */
-function _activatePengaturan(tab, navEl) {
-  var isData = (tab === 'data');
-
-  // Sembunyikan semua page
-  document.querySelectorAll('.page').forEach(function(p){
-    p.style.display = 'none';
-    p.classList.remove('active');
-  });
-  // Tampilkan page-pengaturan
-  var pg = document.getElementById('page-pengaturan');
-  if (pg) {
-    pg.style.display = 'block';
-    pg.classList.add('active');
-  }
-
-  // Aktifkan nav item
-  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
-  if (navEl) navEl.classList.add('active');
-
-  // Tab pane — display saja, tanpa visibility
-  var pData = document.getElementById('tabPaneData');
-  var pAkun = document.getElementById('tabPaneAkun');
-  if (pData) pData.style.display = isData ? 'block' : 'none';
-  if (pAkun) pAkun.style.display = isData ? 'none'  : 'block';
-
-  // Header
-  var title = document.getElementById('pgSettingTitle');
-  var sub   = document.getElementById('pgSettingSub');
-  if (title) title.textContent = isData ? 'Pengaturan Data' : 'Manajemen Akun';
-  if (sub)   sub.textContent   = isData
-    ? 'Konfigurasi data anggaran, blokir, target, dan realisasi'
-    : 'Kelola akun admin dan user yang dapat mengakses SIPADU';
-
-  // Breadcrumb
-  var bci = document.getElementById('bcIcon');
-  var bct = document.getElementById('bcText');
-  if (bci) bci.className   = isData ? 'fas fa-database' : 'fas fa-users-gear';
-  if (bct) bct.textContent  = isData ? 'Pengaturan Data' : 'Manajemen Akun';
-
-  // Topnav: sembunyikan Upload+tema+TA saat Manajemen Akun
-  var up  = document.getElementById('uploadBtn');
-  var ta  = document.querySelector('.ta-chip');
-  var thm = document.getElementById('themeBtn');
-  var log = document.getElementById('btnLogout');
-  if (up)  up.style.display  = isData ? '' : 'none';
-  if (ta)  ta.style.display  = isData ? '' : 'none';
-  if (thm) thm.style.display = isData ? '' : 'none';
-
-  // Mobile: tutup sidebar
-  if (window.innerWidth <= 680) {
-    var sb  = document.getElementById('sidebar');
-    var sbo = document.getElementById('sbOverlay');
-    if (sb)  sb.classList.remove('mob-open');
-    if (sbo) sbo.classList.remove('mob-open');
-  }
 }
 
 /* ── Keyboard shortcuts ─────────────────────────────────────── */

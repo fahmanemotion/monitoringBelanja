@@ -28,10 +28,7 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{font-size:14px;scroll-behavior:smooth}
 body{font-family:var(--font);background:var(--bg);color:var(--t1);
-  min-height:100vh;overflow-x:hidden;transition:background .3s,color .3s}
-##appWrap{display:none;width:100%;min-height:100vh;position:relative}
-#appWrap.visible{display:block}
-#appWrap.visible{display:flex}
+  min-height:100vh;display:flex;overflow-x:hidden;transition:background .3s,color .3s}
 button{cursor:pointer;font-family:var(--font);border:none;background:none}
 input,select{font-family:var(--font);outline:none}
 ::-webkit-scrollbar{width:5px;height:5px}
@@ -71,9 +68,8 @@ input,select{font-family:var(--font);outline:none}
 .sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:299}
 
 /* ── Main / Topnav ── */
-.main{margin-left:var(--sw);width:calc(100% - var(--sw));display:flex;
-  flex-direction:column;min-height:100vh;min-width:0;
-  transition:margin-left .3s,width .3s}
+.main{margin-left:var(--sw);display:flex;flex-direction:column;
+  min-height:100vh;min-width:0;transition:margin-left .3s}
 .topnav{position:sticky;top:0;height:var(--nh);
   background:var(--nav);border-bottom:1px solid var(--bd);
   display:flex;align-items:center;padding:0 20px;gap:10px;
@@ -351,7 +347,6 @@ input,select{font-family:var(--font);outline:none}
 @media(max-width:680px){
   .sidebar{transform:translateX(-100%)}
   .sidebar.mob-open{transform:none}
-  main,.main{margin-left:0;width:100%}
   .sb-overlay.mob-open{display:block}
   .main{margin-left:0!important}
   .hamburger{display:flex}
