@@ -73,16 +73,265 @@ var APP = {
   realWb: null,    // workbook FA Detail yang sedang disiapkan upload
   realParsed: null, // {bulanIdx, nilai, namaFile} hasil parse sebelum disimpan
   viewMonth: -1,   // -1 = semua bulan, 0-11 = filter bulan tertentu
+  // Auth
+  currentUser: null,  // { id, username, role } setelah login
 };
 var CHARTS = {};
 
 /* ── Boot ───────────────────────────────────────────────────── */
+
+/* ── Auth & Login ──────────────────────────────────────────────────────── */
+
+/**
+ * hashPassword — simple SHA-256 hash via Web Crypto API
+ */
+async function hashPassword(password) {
+  var encoder = new TextEncoder();
+  var data     = encoder.encode(password);
+  var hashBuf  = await crypto.subtle.digest('SHA-256', data);
+  var hashArr  = Array.from(new Uint8Array(hashBuf));
+  return hashArr.map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+}
+
+/**
+ * doLogin — validasi username+password ke tabel app_users di Supabase
+ */
+async function doLogin() {
+  var username = (document.getElementById('loginUsername').value || '').trim().toLowerCase();
+  var password = document.getElementById('loginPassword').value || '';
+  var errEl    = document.getElementById('loginError');
+  var btnEl    = document.getElementById('btnLogin');
+
+  errEl.style.display = 'none';
+  if (!username || !password) {
+    errEl.textContent  = 'Username dan password wajib diisi';
+    errEl.style.display = 'block'; return;
+  }
+
+  btnEl.disabled   = true;
+  btnEl.innerHTML  = '<i class="fas fa-circle-notch fa-spin" style="margin-right:8px"></i>Memeriksa...';
+
+  try {
+    var hashed = await hashPassword(password);
+    var rows   = await supaFetch('GET', 'app_users', {
+      query: 'username=eq.' + encodeURIComponent(username) +
+             '&password_hash=eq.' + hashed +
+             '&select=id,username,role',
+      returning: true,
+    });
+
+    if (!rows || rows.length === 0) {
+      errEl.textContent  = 'Username atau password salah';
+      errEl.style.display = 'block';
+      btnEl.disabled     = false;
+      btnEl.innerHTML    = '<i class="fas fa-sign-in-alt" style="margin-right:8px"></i>Masuk';
+      return;
+    }
+
+    var user = rows[0];
+    APP.currentUser = user;
+    // Simpan session ke sessionStorage (hilang saat tab ditutup)
+    sessionStorage.setItem('sipadu_session', JSON.stringify(user));
+
+    // Tampilkan app
+    showApp(user);
+  } catch(e) {
+    errEl.textContent  = 'Gagal terhubung ke server: ' + e.message;
+    errEl.style.display = 'block';
+    btnEl.disabled     = false;
+    btnEl.innerHTML    = '<i class="fas fa-sign-in-alt" style="margin-right:8px"></i>Masuk';
+  }
+}
+
+/**
+ * togglePwd — show/hide password field
+ */
+function togglePwd() {
+  var inp = document.getElementById('loginPassword');
+  var ico = document.getElementById('btnTogglePwd').querySelector('i');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    ico.className = 'fas fa-eye-slash';
+  } else {
+    inp.type = 'password';
+    ico.className = 'fas fa-eye';
+  }
+}
+
+/**
+ * showApp — sembunyikan login, tampilkan app sesuai role
+ */
+function showApp(user) {
+  document.getElementById('loginPage').style.display = 'none';
+  document.getElementById('appWrap').style.display   = 'block';
+
+  // Update badge user di topnav
+  var nameEl = document.getElementById('userBadgeName');
+  var roleEl = document.getElementById('userBadgeRole');
+  if (nameEl) nameEl.textContent = user.username;
+  if (roleEl) {
+    roleEl.textContent  = user.role === 'admin' ? 'Admin' : 'User';
+    roleEl.style.background = user.role === 'admin' ? '#1a56db' : '#0e9f6e';
+  }
+
+  // Batasi akses untuk role user (view only)
+  applyRoleRestrictions(user.role);
+
+  // Load data dari Supabase
+  loadAllFromSupabase();
+}
+
+/**
+ * applyRoleRestrictions — sembunyikan fitur edit untuk role user
+ */
+function applyRoleRestrictions(role) {
+  if (role === 'admin') return; // admin bisa semua
+
+  // User: sembunyikan upload button, pengaturan nav, edit controls
+  var hideIds = ['uploadBtn','keuUploadBtn','setUploadBtn',
+                 'nav-pengaturan','btnProcess'];
+  hideIds.forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+
+  // Sembunyikan tab Keuangan (opsional — sesuai kebutuhan, uncomment jika perlu)
+  // document.getElementById('nav-keuangan').style.display = 'none';
+
+  // Tandai app sebagai view-only
+  APP.viewOnly = true;
+}
+
+/**
+ * doLogout — hapus session dan kembali ke login
+ */
+function doLogout() {
+  if (!confirm('Keluar dari SIPADU?')) return;
+  sessionStorage.removeItem('sipadu_session');
+  APP.currentUser = null;
+  APP.viewOnly    = false;
+  // Reset login form
+  document.getElementById('loginUsername').value  = '';
+  document.getElementById('loginPassword').value  = '';
+  document.getElementById('loginError').style.display = 'none';
+  document.getElementById('btnLogin').disabled    = false;
+  document.getElementById('btnLogin').innerHTML   =
+    '<i class="fas fa-sign-in-alt" style="margin-right:8px"></i>Masuk';
+  // Destroy charts
+  Object.keys(CHARTS).forEach(function(k){ if(CHARTS[k]) CHARTS[k].destroy(); });
+  CHARTS = {};
+  // Kembali ke login
+  document.getElementById('appWrap').style.display   = 'none';
+  document.getElementById('loginPage').style.display = 'flex';
+}
+
+/* ── Manajemen Akun ────────────────────────────────────────────────────── */
+
+/**
+ * loadUsers — ambil semua akun dari Supabase
+ */
+async function loadUsers() {
+  try {
+    var rows = await supaFetch('GET', 'app_users', {
+      query: 'select=id,username,role,created_at&order=created_at',
+      returning: true,
+    });
+    renderUserTable(rows || []);
+  } catch(e) {
+    console.warn('loadUsers error:', e.message);
+  }
+}
+
+/**
+ * renderUserTable — tampilkan daftar akun di pengaturan
+ */
+function renderUserTable(users) {
+  var tbody  = document.getElementById('userTableBody');
+  var badge  = document.getElementById('userCount');
+  if (!tbody) return;
+  if (badge) badge.textContent = users.length + ' Akun';
+
+  if (users.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--t3)">Belum ada akun</td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map(function(u) {
+    var roleBadge = u.role === 'admin'
+      ? '<span style="padding:2px 8px;background:#dbeafe;color:#1e40af;border-radius:4px;font-size:11px;font-weight:700">Admin</span>'
+      : '<span style="padding:2px 8px;background:#def7ec;color:#057a55;border-radius:4px;font-size:11px;font-weight:700">User</span>';
+    var dt = u.created_at ? new Date(u.created_at).toLocaleDateString('id-ID') : '-';
+    // Jangan tampilkan tombol hapus untuk akun yang sedang login
+    var isMe = APP.currentUser && APP.currentUser.id === u.id;
+    var delBtn = isMe
+      ? '<span style="font-size:11px;color:var(--t3)">Akun ini</span>'
+      : '<button onclick="deleteUser(' + u.id + ',&quot;' + esc(u.username) + '&quot;)" ' +
+          'style="width:28px;height:28px;border-radius:4px;background:var(--red-l);' +
+          'color:var(--red);font-size:12px;display:inline-flex;align-items:center;' +
+          'justify-content:center;cursor:pointer;border:none">' +
+          '<i class="fas fa-trash"></i></button>';
+    return '<tr>' +
+      '<td style="font-weight:600;color:var(--t1)">' + esc(u.username) + '</td>' +
+      '<td style="text-align:center">' + roleBadge + '</td>' +
+      '<td style="font-size:12px;color:var(--t3)">' + dt + '</td>' +
+      '<td style="text-align:center">' + delBtn + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+/**
+ * addUser — tambah akun baru
+ */
+async function addUser() {
+  var username = (document.getElementById('newUsername').value || '').trim().toLowerCase();
+  var password = document.getElementById('newPassword').value || '';
+  var role     = document.getElementById('newRole').value;
+
+  if (!username) { toast('error','Username Kosong','Masukkan username'); return; }
+  if (password.length < 6) { toast('error','Password Terlalu Pendek','Minimal 6 karakter'); return; }
+  if (!/^[a-z0-9_]+$/.test(username)) {
+    toast('error','Username Tidak Valid','Hanya huruf kecil, angka, dan underscore'); return;
+  }
+
+  try {
+    var hashed = await hashPassword(password);
+    var rows   = await supaFetch('POST', 'app_users', {
+      body: [{ username: username, password_hash: hashed, role: role }],
+      returning: true,
+    });
+    if (!rows || rows.length === 0) throw new Error('Insert gagal');
+    document.getElementById('newUsername').value = '';
+    document.getElementById('newPassword').value = '';
+    await loadUsers();
+    toast('success', 'Akun Ditambahkan', username + ' (' + role + ') berhasil dibuat');
+  } catch(e) {
+    if (e.message.includes('duplicate') || e.message.includes('unique')) {
+      toast('error','Username Sudah Ada','Pilih username lain');
+    } else {
+      toast('error','Gagal Tambah', e.message);
+    }
+  }
+}
+
+/**
+ * deleteUser — hapus akun
+ */
+async function deleteUser(id, username) {
+  if (!confirm('Hapus akun "' + username + '"?')) return;
+  try {
+    await supaFetch('DELETE', 'app_users', { query: 'id=eq.' + id });
+    await loadUsers();
+    toast('info','Akun Dihapus', username + ' telah dihapus');
+  } catch(e) {
+    toast('error','Gagal Hapus', e.message);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', function () {
-  // Theme tetap di localStorage (preferensi lokal per browser)
+  // Theme tetap di localStorage
   APP.theme = localStorage.getItem('sipadu_theme') || 'light';
   applyTheme(APP.theme);
 
-  // Wire UI dulu sebelum async load
+  // Wire UI
   wireSidebar();
   wireNavItems();
   wireSourceTabs();
@@ -93,11 +342,22 @@ document.addEventListener('DOMContentLoaded', function () {
   wireTargetUpload();
   wireKeyboard();
 
-  // Tampilkan loading state
-  showLoadingState();
+  // Cek session yang masih aktif (sessionStorage)
+  try {
+    var sess = sessionStorage.getItem('sipadu_session');
+    if (sess) {
+      var user = JSON.parse(sess);
+      if (user && user.username && user.role) {
+        APP.currentUser = user;
+        showApp(user);
+        return; // showApp akan panggil loadAllFromSupabase
+      }
+    }
+  } catch(e) {}
 
-  // Load semua data dari Supabase secara async
-  loadAllFromSupabase();
+  // Tidak ada session → tampilkan login
+  document.getElementById('loginPage').style.display = 'flex';
+  document.getElementById('appWrap').style.display   = 'none';
 });
 
 /**
@@ -308,6 +568,16 @@ function switchPage(pageId, navEl) {
     setTimeout(function () {
       Object.keys(CHARTS).forEach(function (k) { if (CHARTS[k]) CHARTS[k].resize(); });
     }, 50);
+  }
+  // Muat daftar akun saat buka pengaturan (admin only)
+  if (pageId === 'pengaturan' && APP.currentUser && APP.currentUser.role === 'admin') {
+    loadUsers();
+  }
+  // Cegah user mengakses pengaturan
+  if (pageId === 'pengaturan' && APP.viewOnly) {
+    switchPage('dashboard', document.getElementById('nav-dashboard'));
+    toast('error','Akses Ditolak','Halaman Pengaturan hanya untuk Admin');
+    return;
   }
 }
 

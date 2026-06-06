@@ -19,6 +19,72 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+
+    <!-- ══════ LOGIN PAGE ══════ -->
+    <div id="loginPage" style="display:flex;min-height:100vh;align-items:center;
+      justify-content:center;background:linear-gradient(135deg,#0d1b2a 0%,#1a3a5c 50%,#1a56db 100%);
+      font-family:'DM Sans',system-ui,sans-serif">
+      <div style="background:#fff;border-radius:20px;padding:44px 40px;width:100%;max-width:400px;
+        box-shadow:0 24px 60px rgba(0,0,0,.3);margin:16px">
+        <!-- Logo -->
+        <div style="text-align:center;margin-bottom:32px">
+          <div style="width:60px;height:60px;border-radius:16px;margin:0 auto 16px;
+            background:linear-gradient(135deg,#1a56db,#60a5fa);
+            display:flex;align-items:center;justify-content:center;
+            box-shadow:0 8px 20px rgba(26,86,219,.35)">
+            <i class="fas fa-landmark" style="color:#fff;font-size:26px"></i>
+          </div>
+          <div style="font-size:22px;font-weight:800;color:#0d1b2a;letter-spacing:-.02em">SIPADU</div>
+          <div style="font-size:12px;color:#8896a7;margin-top:4px">Monitoring Keuangan DIPA</div>
+        </div>
+        <!-- Form -->
+        <div style="margin-bottom:16px">
+          <label style="display:block;font-size:12px;font-weight:700;color:#4a5568;
+            text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Username</label>
+          <input id="loginUsername" type="text" placeholder="Masukkan username"
+            style="width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:10px;
+              font-size:14px;font-family:inherit;outline:none;transition:border-color .18s;
+              box-sizing:border-box"
+            onfocus="this.style.borderColor='#1a56db'"
+            onblur="this.style.borderColor='#e2e8f0'"
+            onkeydown="if(event.key==='Enter')document.getElementById('loginPassword').focus()"/>
+        </div>
+        <div style="margin-bottom:8px">
+          <label style="display:block;font-size:12px;font-weight:700;color:#4a5568;
+            text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Password</label>
+          <div style="position:relative">
+            <input id="loginPassword" type="password" placeholder="Masukkan password"
+              style="width:100%;padding:11px 44px 11px 14px;border:1.5px solid #e2e8f0;
+                border-radius:10px;font-size:14px;font-family:inherit;outline:none;
+                transition:border-color .18s;box-sizing:border-box"
+              onfocus="this.style.borderColor='#1a56db'"
+              onblur="this.style.borderColor='#e2e8f0'"
+              onkeydown="if(event.key==='Enter')doLogin()"/>
+            <button onclick="togglePwd()" style="position:absolute;right:12px;top:50%;
+              transform:translateY(-50%);background:none;border:none;cursor:pointer;
+              color:#8896a7;font-size:14px" id="btnTogglePwd">
+              <i class="fas fa-eye"></i>
+            </button>
+          </div>
+        </div>
+        <div id="loginError" style="display:none;color:#c81e1e;font-size:12.5px;
+          margin-bottom:12px;padding:8px 12px;background:#fde8e8;border-radius:8px;
+          font-weight:500"></div>
+        <button onclick="doLogin()" id="btnLogin"
+          style="width:100%;padding:12px;background:linear-gradient(90deg,#1a56db,#3b82f6);
+            color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;
+            cursor:pointer;font-family:inherit;transition:opacity .18s;margin-top:8px;
+            box-shadow:0 4px 12px rgba(26,86,219,.3)">
+          <i class="fas fa-sign-in-alt" style="margin-right:8px"></i>Masuk
+        </button>
+        <div style="text-align:center;margin-top:20px;font-size:11.5px;color:#8896a7">
+          Sistem Informasi Pengelolaan Anggaran DIPA
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════ APP (hidden until login) ══════ -->
+    <div id="appWrap" style="display:none">
     <div class="sb-overlay" id="sbOverlay"></div>
 
     <!-- ══════ SIDEBAR ══════ -->
@@ -81,12 +147,25 @@
           </div>
         </div>
         <div class="topnav-r">
+          <!-- Badge role user -->
+          <div id="userBadge" style="display:flex;align-items:center;gap:6px;
+            padding:5px 11px;border-radius:8px;font-size:12px;font-weight:600;
+            background:var(--blue-l);color:var(--blue)">
+            <i class="fas fa-user-circle"></i>
+            <span id="userBadgeName">—</span>
+            <span id="userBadgeRole" style="font-size:10px;padding:1px 6px;border-radius:4px;
+              background:var(--blue);color:#fff;margin-left:2px">—</span>
+          </div>
           <button class="btn-upload" id="uploadBtn">
             <i class="fas fa-file-arrow-up"></i>
             <span>Upload Excel SAKTI</span>
           </button>
           <button class="icon-btn" id="themeBtn" aria-label="Toggle dark mode">
             <i class="fas fa-moon" id="themeIc"></i>
+          </button>
+          <button class="icon-btn" id="btnLogout" title="Keluar" onclick="doLogout()"
+            style="color:var(--red)">
+            <i class="fas fa-sign-out-alt"></i>
           </button>
           <div class="ta-chip">
             <i class="fas fa-calendar-days"></i>
@@ -573,6 +652,67 @@
               </button>
             </div>
           </div>
+
+          <!-- Manajemen Akun (admin only) -->
+          <div class="section" id="sectionManajemenUser" style="margin-top:16px">
+            <div class="sec-hdr">
+              <div class="sec-title-row">
+                <div class="sec-title">
+                  <i class="fas fa-users" style="color:var(--blue);margin-right:6px"></i>
+                  Manajemen Akun
+                </div>
+                <span class="count-badge" id="userCount">0 Akun</span>
+              </div>
+              <p style="font-size:12px;color:var(--t3);margin-top:4px">
+                Tambah akun admin atau user view-only. Password disimpan terenkripsi di database.
+              </p>
+            </div>
+            <!-- Form tambah akun -->
+            <div style="padding:14px 16px;border-bottom:1px solid var(--bd)">
+              <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:10px;align-items:flex-end">
+                <div class="fg">
+                  <label>Username</label>
+                  <input type="text" id="newUsername" class="blokir-input" placeholder="contoh: admin2"/>
+                </div>
+                <div class="fg">
+                  <label>Password</label>
+                  <input type="password" id="newPassword" class="blokir-input" placeholder="min. 6 karakter"/>
+                </div>
+                <div class="fg">
+                  <label>Role</label>
+                  <select id="newRole" class="fsel">
+                    <option value="admin">Admin</option>
+                    <option value="user">User</option>
+                  </select>
+                </div>
+                <div class="fg">
+                  <label>&nbsp;</label>
+                  <button class="btn-primary" onclick="addUser()" style="white-space:nowrap">
+                    <i class="fas fa-user-plus"></i> Tambah
+                  </button>
+                </div>
+              </div>
+            </div>
+            <!-- Tabel akun -->
+            <div class="tbl-wrap">
+              <table class="dtbl">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th style="width:100px;text-align:center">Role</th>
+                    <th style="width:150px">Dibuat</th>
+                    <th style="width:80px;text-align:center">Hapus</th>
+                  </tr>
+                </thead>
+                <tbody id="userTableBody">
+                  <tr><td colspan="4" style="text-align:center;padding:20px;color:var(--t3)">
+                    Memuat daftar akun...
+                  </td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
       </main>
     </div>
@@ -625,6 +765,8 @@
 
     <!-- Toasts -->
     <div class="toast-box" id="toastBox"></div>
+
+    </div><!-- /appWrap -->
 
     <!-- Script dimuat SETELAH semua DOM siap -->
     <script src="index.js"></script>
