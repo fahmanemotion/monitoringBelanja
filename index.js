@@ -1624,28 +1624,44 @@ function handleTargetFile(files) {
       if (bar) bar.style.width = '55%';
       if (lbl) lbl.textContent = 'Mengurai Rencana 51 + 52 + 53...';
 
-      var wb  = XLSX.read(e2.target.result, { type:'binary', raw:false });
+      // raw:true → nilai angka tetap number, tidak diformat → konsisten di semua browser
+      var wb  = XLSX.read(e2.target.result, { type:'binary', raw:true });
       var ws  = wb.Sheets[wb.SheetNames[0]];
-      var raw = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'' });
+      // raw:true → number tetap number; string cell (prefix ') tetap string
+      var raw = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:null });
 
-      /* helper: bersihkan nilai — strip tanda kutip tunggal/ganda,
-         ganti koma desimal → titik, hapus pemisah ribuan titik/koma */
+      /* helper: parse nilai ke number
+         Handle: raw number, string dengan prefix kutip, scientific notation,
+         format ribuan dengan titik/koma, format desimal dengan koma */
       function pn(v) {
         if (v === null || v === undefined || v === '') return 0;
-        if (typeof v === 'number') return Math.abs(v);  // sudah number, langsung pakai
+        // Jika sudah number (dari raw:true), langsung pakai
+        if (typeof v === 'number') return isNaN(v) ? 0 : Math.abs(v);
         var s = String(v).trim()
-                  .replace(/^['"]+/, '').replace(/['"]+$/, '')  // strip quotes
+                  .replace(/^['"]+/, '').replace(/['"]+$/, '')  // strip kutip
                   .replace(/\s/g, '');                          // hapus spasi
-        /* Deteksi format: jika ada koma setelah titik = 1.234,56 → ganti */
-        if (/\d\.\d{3},/.test(s)) {
-          s = s.replace(/\./g,'').replace(',','.');  // 1.234,56 → 1234.56
-        } else if (/\d,\d{3}\./.test(s)) {
-          s = s.replace(/,/g,'');                     // 1,234.56 → 1234.56
-        } else {
-          s = s.replace(',', '.');                    // fallback: ganti koma → titik
+        if (!s) return 0;
+        // Scientific notation: 9.56E+8 → langsung parseFloat bisa
+        if (/[eE]/.test(s)) {
+          var n = parseFloat(s.replace(',','.'));
+          return isNaN(n) ? 0 : Math.abs(n);
         }
-        var n = parseFloat(s);
-        return isNaN(n) ? 0 : Math.abs(n);
+        // Format ribuan Indonesia: 1.234.567 (titik = ribuan, koma = desimal)
+        if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+          return Math.abs(parseFloat(s.replace(/\./g,'')) || 0);
+        }
+        // Format ribuan: 1.234,56
+        if (/\.\d{3},/.test(s) || /^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
+          s = s.replace(/\./g,'').replace(',','.');
+        // Format: 1,234.56
+        } else if (/,\d{3}\./.test(s) || /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) {
+          s = s.replace(/,/g,'');
+        // Format koma desimal saja: 1234,56
+        } else if (s.indexOf(',') !== -1 && s.indexOf('.') === -1) {
+          s = s.replace(',', '.');
+        }
+        var nn = parseFloat(s);
+        return isNaN(nn) ? 0 : Math.abs(nn);
       }
 
       /* ── Parse Detail Indikator Halaman 3 DIPA ────────────────────────────
@@ -1654,7 +1670,12 @@ function handleTargetFile(files) {
            Row 4 (idx 3): sub-hdr — col[5]='51', col[6]='52', col[7]='53'
            Row 5..16     : data   — col[4]=01..12, col[5]=R51, col[6]=R52, col[7]=R53
          CATATAN: col[5..28] semua punya sub-header '51','52','53' → JANGAN auto-detect,
-                  selalu gunakan col 5,6,7 yang berada di bawah 'Rencana'.          */
+                  selalu gunakan col 5,6,7 yang berada di bawah 'Rencana'.
+         raw:true → angka sebagai number, text-cell sebagai string (mungkin dengan prefix ')
+         Semua di-handle oleh pn() di bawah.                                        */
+
+      console.log('[SIPADU Target] Total rows:', raw.length);
+      console.log('[SIPADU Target] Sample row[4]:', raw[4]);
 
       var parsed = new Array(12).fill(null);
       var found  = 0;
