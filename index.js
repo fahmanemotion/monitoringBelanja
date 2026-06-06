@@ -296,75 +296,74 @@ function buildFilterOpts() {
  * Dipanggil setiap kali salah satu filter berubah.
  */
 function rebuildCascadeFilters() {
-  var prog  = (document.getElementById('fProg')  || {}).value || '';
-  var kro   = (document.getElementById('fKRO')   || {}).value || '';
-  var ro    = (document.getElementById('fRO')    || {}).value || '';
-  var akun  = (document.getElementById('fAkun')  || {}).value || '';
+  var prog   = (document.getElementById('fProg')     || {}).value || '';
+  var kro    = (document.getElementById('fKRO')      || {}).value || '';
+  var ro     = (document.getElementById('fRO')       || {}).value || '';
+  var akun   = (document.getElementById('fAkun')     || {}).value || '';
+  var sumber = (document.getElementById('fSumberKeg')|| {}).value || '';
 
-  // Pool data yang relevan di setiap level
-  var poolKRO  = APP.data.filter(function (r) {
-    return (!prog || r.prog_kode === prog);
-  });
-  var poolRO   = APP.data.filter(function (r) {
-    return (!prog || r.prog_kode === prog) &&
-           (!kro  || r.kro_kode  === kro);
-  });
-  var poolAkun = APP.data.filter(function (r) {
-    return (!prog || r.prog_kode === prog) &&
-           (!kro  || r.kro_kode  === kro)  &&
-           (!ro   || r.ro_full   === ro);
-  });
-  var poolDetail = APP.data.filter(function (r) {
-    return (!prog || r.prog_kode === prog) &&
-           (!kro  || r.kro_kode  === kro)  &&
-           (!ro   || r.ro_full   === ro)   &&
-           (!akun || r.akun_kode === akun);
-  });
+  /* ── Helper filter dasar ── */
+  function baseFilter(r) {
+    if (prog   && r.prog_kode !== prog)  return false;
+    if (kro    && r.kro_kode  !== kro)   return false;
+    if (ro     && r.ro_full   !== ro)    return false;
+    return true;
+  }
 
-  // KRO
+  /* ── KRO: pool hanya dari Program (sumber tidak mempengaruhi KRO) ── */
   var kroMap = {};
-  poolKRO.forEach(function (r) { if (r.kro_kode) kroMap[r.kro_kode] = r.kro_nama; });
-  fillSelect('fKRO', Object.keys(kroMap).sort().map(function (k) {
+  APP.data.filter(function(r){ return !prog || r.prog_kode === prog; })
+    .forEach(function(r){ if (r.kro_kode) kroMap[r.kro_kode] = r.kro_nama; });
+  fillSelect('fKRO', Object.keys(kroMap).sort().map(function(k){
     return [k, k + ' — ' + (kroMap[k] || '')];
   }));
 
-  // RO
+  /* ── RO: pool dari Program + KRO ── */
   var roMap = {};
-  poolRO.forEach(function (r) { if (r.ro_full) roMap[r.ro_full] = r.ro_nama; });
-  fillSelect('fRO', Object.keys(roMap).sort().map(function (k) {
+  APP.data.filter(function(r){
+    return (!prog || r.prog_kode === prog) && (!kro || r.kro_kode === kro);
+  }).forEach(function(r){ if (r.ro_full) roMap[r.ro_full] = r.ro_nama; });
+  fillSelect('fRO', Object.keys(roMap).sort().map(function(k){
     return [k, k + ' — ' + (roMap[k] || '').substring(0, 55)];
   }));
 
-  // Akun
+  /* ── Akun: pool dari Program + KRO + RO + SUMBER DANA ──
+     Jika Sumber Dana dipilih → hanya tampilkan akun milik sumber itu
+     Prefix akun: 511/512 = RM pegawai, 521/522/523/524 = RM barang,
+                  531/532/533 = RM modal, 525 = BLU                  */
   var akunMap = {};
-  poolAkun.forEach(function (r) { if (r.akun_kode) akunMap[r.akun_kode] = r.akun_nama; });
-  fillSelect('fAkun', Object.keys(akunMap).sort().map(function (k) {
+  APP.data.filter(function(r){
+    if (!baseFilter(r)) return false;
+    if (sumber && r.sumber !== sumber) return false;  // ← filter sumber di akun
+    return true;
+  }).forEach(function(r){ if (r.akun_kode) akunMap[r.akun_kode] = r.akun_nama; });
+  fillSelect('fAkun', Object.keys(akunMap).sort().map(function(k){
     return [k, k + ' — ' + (akunMap[k] || '')];
   }));
 
-  // Detail kegiatan
+  /* ── Detail: pool dari Program + KRO + RO + Akun + Sumber Dana ── */
   var detailSet = {};
-  poolDetail.forEach(function (r) {
-    (r.details || []).forEach(function (d) { if (d.nama) detailSet[d.nama] = 1; });
+  APP.data.filter(function(r){
+    if (!baseFilter(r)) return false;
+    if (akun   && r.akun_kode !== akun)  return false;
+    if (sumber && r.sumber    !== sumber) return false;
+    return true;
+  }).forEach(function(r){
+    (r.details || []).forEach(function(d){ if (d.nama) detailSet[d.nama] = 1; });
   });
-  fillSelect('fDetail', Object.keys(detailSet).sort().map(function (k) {
+  fillSelect('fDetail', Object.keys(detailSet).sort().map(function(k){
     return [k, k];
   }));
 
-  // Sumber Dana — pool mengikuti seluruh filter di atasnya (prog+kro+ro+akun+detail)
+  /* ── Sumber Dana: pool dari Program + KRO + RO + Akun + Detail ── */
   var detail = (document.getElementById('fDetail') || {}).value || '';
-  var poolSumber = APP.data.filter(function (r) {
-    if (prog   && r.prog_kode !== prog)   return false;
-    if (kro    && r.kro_kode  !== kro)    return false;
-    if (ro     && r.ro_full   !== ro)     return false;
-    if (akun   && r.akun_kode !== akun)   return false;
-    if (detail) {
-      return (r.details || []).some(function (d) { return d.nama === detail; });
-    }
-    return true;
-  });
   var sumberSet = {};
-  poolSumber.forEach(function (r) { if (r.sumber) sumberSet[r.sumber] = 1; });
+  APP.data.filter(function(r){
+    if (!baseFilter(r)) return false;
+    if (akun && r.akun_kode !== akun) return false;
+    if (detail) return (r.details||[]).some(function(d){ return d.nama===detail; });
+    return true;
+  }).forEach(function(r){ if (r.sumber) sumberSet[r.sumber] = 1; });
   var sumberPairs = [];
   if (sumberSet['rm'])  sumberPairs.push(['rm',  'RM']);
   if (sumberSet['blu']) sumberPairs.push(['blu', 'BLU']);
@@ -428,9 +427,17 @@ function wireFilters() {
     applyFilters();
   });
 
-  // Sumber Dana: daun paling akhir — langsung filter tabel
+  // Sumber Dana: rebuild Akun + Detail (hanya akun sumber ini), lalu filter tabel
   var elSumber = document.getElementById('fSumberKeg');
-  if (elSumber) elSumber.addEventListener('change', applyFilters);
+  if (elSumber) elSumber.addEventListener('change', function () {
+    // Reset Akun dan Detail karena pilihan berubah sesuai sumber
+    ['fAkun', 'fDetail'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    rebuildCascadeFilters();
+    applyFilters();
+  });
 
   // Search
   var kq = document.getElementById('kegQ');
