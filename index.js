@@ -201,7 +201,7 @@ function applyRoleRestrictions(role) {
   if (role === 'admin') {
     // Admin: tampilkan kembali semua bagian (jaga-jaga setelah logout/login ganti role)
     var showIds = ['uploadBtn','setUploadBtn','nav-pengaturan',
-                   'nav-manajemen','btnProcess','sectionManajemenUser'];
+                   'nav-manajemen','btnProcess','sectionManajemenUser','sectionSatkerIdentity'];
     showIds.forEach(function(id){
       var el = document.getElementById(id);
       if (el) el.style.display = '';
@@ -215,7 +215,7 @@ function applyRoleRestrictions(role) {
   // User (view-only): sembunyikan fitur edit & manajemen penuh,
   // TAPI tetap boleh akses Manajemen Akun untuk ubah password sendiri.
   var hideIds = ['uploadBtn','setUploadBtn',
-                 'nav-pengaturan','btnProcess','sectionManajemenUser'];
+                 'nav-pengaturan','btnProcess','sectionManajemenUser','sectionSatkerIdentity'];
   hideIds.forEach(function(id){
     var el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -524,6 +524,9 @@ document.addEventListener('DOMContentLoaded', function () {
   wireRealUpload();
   wireTargetUpload();
   wireKeyboard();
+  // Wire upload logo satker
+  var logoInp = document.getElementById('logoFileInput');
+  if (logoInp) logoInp.addEventListener('change', function () { handleLogoUpload(this.files); });
 
   // Cek session yang masih aktif (sessionStorage)
   try {
@@ -580,6 +583,8 @@ async function loadAllFromSupabase() {
     metaRows.forEach(function(r){ metaMap[r.key] = r.value; });
     if (metaMap.satker) APP.meta.satker      = metaMap.satker;
     if (metaMap.kode_satker) APP.meta.kode_satker = metaMap.kode_satker;
+    APP.meta.logo = metaMap.logo || '';
+    applyLogo();
     var globalTa = metaMap.ta || String(new Date().getFullYear());
     var defaultYear = globalTa;
 
@@ -924,7 +929,7 @@ function switchPage(pageId, navEl) {
   // Halaman Manajemen Akun
   if (pageId === 'manajemen' && APP.currentUser) {
     fillMyAccountCard();
-    if (APP.currentUser.role === 'admin') loadUsers();
+    if (APP.currentUser.role === 'admin') { loadUsers(); fillSatkerIdentity(); }
   }
 }
 
@@ -1991,6 +1996,9 @@ function wireKeuFilters() {
   // Filter Status Realisasi (khas Modul Keuangan)
   var elStatus = document.getElementById('kfStatus');
   if (elStatus) elStatus.addEventListener('change', applyKeuFilters);
+  // Filter Jenis Belanja (independen, paling bawah setelah Sumber Dana)
+  var elJenis = document.getElementById('kfJenis');
+  if (elJenis) elJenis.addEventListener('change', applyKeuFilters);
   // Pencarian
   var keuq = document.getElementById('keuQ');
   if (keuq) keuq.addEventListener('input', applyKeuFilters);
@@ -2003,6 +2011,7 @@ function applyKeuFilters() {
   var akun   = (document.getElementById('kfAkun')   || {}).value || '';
   var detail = (document.getElementById('kfDetail') || {}).value || '';
   var sumber = (document.getElementById('kfSumber') || {}).value || '';
+  var jenis  = (document.getElementById('kfJenis')  || {}).value || '';
   var status = (document.getElementById('kfStatus') || {}).value || 'gabungan';
   var q      = ((document.getElementById('keuQ')    || {}).value || '').toLowerCase().trim();
 
@@ -2015,7 +2024,8 @@ function applyKeuFilters() {
       var found = (r.details || []).some(function (d) { return d.nama === detail; });
       if (!found) return false;
     }
-    if (sumber && r.sumber !== sumber)   return false;
+    if (sumber && kodeToSumber(r.akun_kode) !== sumber) return false;
+    if (jenis  && kodeToJenis(r.akun_kode)  !== jenis)  return false;
     // Filter status realisasi
     if (status === 'sudah' && !(r.realisasi > 0)) return false;
     if (status === 'belum' && r.realisasi > 0)    return false;
@@ -2651,6 +2661,87 @@ function updateOrgLabel() {
   // Pastikan dropdown tahun mencerminkan tahun aktif
   var taSel = document.getElementById('taSelect');
   if (taSel && taSel.value !== APP.viewYear && APP.viewYear) taSel.value = APP.viewYear;
+}
+
+/* ── Identitas Satker (nama + logo) ─────────────────────────── */
+/** applyLogo — tampilkan/sembunyikan logo di topnav & preview sesuai APP.meta.logo */
+function applyLogo() {
+  var dataUrl = APP.meta.logo || '';
+  var top = document.getElementById('topLogo');
+  if (top) {
+    if (dataUrl) { top.src = dataUrl; top.style.display = ''; }
+    else { top.removeAttribute('src'); top.style.display = 'none'; }
+  }
+  var prev = document.getElementById('logoPreview');
+  var icon = document.getElementById('logoPreviewIcon');
+  var rm   = document.getElementById('logoRemoveBtn');
+  if (prev && icon) {
+    if (dataUrl) { prev.src = dataUrl; prev.style.display = ''; icon.style.display = 'none'; if (rm) rm.style.display = ''; }
+    else { prev.removeAttribute('src'); prev.style.display = 'none'; icon.style.display = ''; if (rm) rm.style.display = 'none'; }
+  }
+}
+
+/** fillSatkerIdentity — isi field nama satker & preview logo (dipanggil saat halaman dibuka) */
+function fillSatkerIdentity() {
+  var inp = document.getElementById('satkerNameInput');
+  if (inp) inp.value = APP.meta.satker || '';
+  applyLogo();
+}
+
+/** saveSatkerName — simpan nama satker ke metadata (key 'satker') */
+async function saveSatkerName() {
+  if (blockIfViewOnly()) return;
+  var inp = document.getElementById('satkerNameInput');
+  var nama = inp ? inp.value.trim() : '';
+  if (!nama) { toast('error', 'Nama Kosong', 'Masukkan nama satuan kerja terlebih dahulu.'); return; }
+  try {
+    await supaFetch('POST', 'metadata', { query: 'on_conflict=key',
+      body: { key: 'satker', value: nama }, returning: false });
+    APP.meta.satker = nama;
+    updateOrgLabel();
+    toast('success', 'Nama Disimpan', 'Nama satker diperbarui menjadi: ' + nama);
+  } catch (e) {
+    toast('error', 'Gagal Simpan', e.message);
+  }
+}
+
+/** handleLogoUpload — baca gambar → base64 → simpan ke metadata (key 'logo') */
+function handleLogoUpload(files) {
+  if (blockIfViewOnly()) return;
+  if (!files || !files[0]) return;
+  var f = files[0];
+  if (!/^image\//.test(f.type)) { toast('error', 'Format Salah', 'File harus berupa gambar (PNG/JPG/SVG/WebP).'); return; }
+  if (f.size > 220 * 1024) { toast('error', 'Logo Terlalu Besar', 'Ukuran logo maksimal ~200 KB. Perkecil dulu gambarnya.'); return; }
+  var reader = new FileReader();
+  reader.onload = async function (e) {
+    var dataUrl = String(e.target.result || '');
+    try {
+      await supaFetch('POST', 'metadata', { query: 'on_conflict=key',
+        body: { key: 'logo', value: dataUrl }, returning: false });
+      APP.meta.logo = dataUrl;
+      applyLogo();
+      toast('success', 'Logo Tersimpan', 'Logo satker diperbarui dan tampil di header.');
+    } catch (err) {
+      toast('error', 'Gagal Simpan Logo', err.message);
+    }
+  };
+  reader.readAsDataURL(f);
+}
+
+/** removeSatkerLogo — hapus logo (kosongkan metadata key 'logo') */
+async function removeSatkerLogo() {
+  if (blockIfViewOnly()) return;
+  if (!confirm('Hapus logo satker?')) return;
+  try {
+    await supaFetch('POST', 'metadata', { query: 'on_conflict=key',
+      body: { key: 'logo', value: '' }, returning: false });
+    APP.meta.logo = '';
+    applyLogo();
+    var fi = document.getElementById('logoFileInput'); if (fi) fi.value = '';
+    toast('info', 'Logo Dihapus', 'Logo satker telah dihapus.');
+  } catch (e) {
+    toast('error', 'Gagal Hapus Logo', e.message);
+  }
 }
 
 /* ── Reset ──────────────────────────────────────────────────── */

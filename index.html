@@ -284,6 +284,8 @@
           <button class="hamburger" id="hambBtn" aria-label="Toggle menu">
             <span></span><span></span><span></span>
           </button>
+          <img id="topLogo" alt="Logo Satker" style="display:none;height:30px;width:auto;
+            max-width:46px;object-fit:contain;margin-right:4px;border-radius:6px"/>
           <div class="breadcrumb">
             <i class="fas fa-gauge-high" id="bcIcon"></i>
             <strong id="bcText">Dashboard</strong>
@@ -568,6 +570,15 @@
                     <option value="">Gabungan</option>
                     <option value="rm">RM</option>
                     <option value="blu">BLU</option>
+                  </select>
+                </div>
+                <div class="fg">
+                  <label>Jenis Belanja</label>
+                  <select class="fsel" id="kfJenis">
+                    <option value="">Semua</option>
+                    <option value="pegawai">Belanja Pegawai</option>
+                    <option value="barang">Belanja Barang</option>
+                    <option value="modal">Belanja Modal</option>
                   </select>
                 </div>
                 <div class="fg" style="flex: 1">
@@ -891,6 +902,57 @@
               <button class="btn-primary" onclick="openMyPasswordModal()">
                 <i class="fas fa-key"></i> Ubah Password Saya
               </button>
+            </div>
+          </div>
+
+          <!-- Identitas Satker (admin only) -->
+          <div class="section" id="sectionSatkerIdentity" style="margin-bottom:16px">
+            <div class="sec-hdr">
+              <div class="sec-title-row">
+                <div class="sec-title">
+                  <i class="fas fa-building" style="color:var(--blue);margin-right:6px"></i>
+                  Identitas Satker
+                </div>
+              </div>
+              <p style="font-size:12px;color:var(--t3);margin-top:4px">
+                Ubah nama satuan kerja dan logo yang tampil di header dashboard.
+              </p>
+            </div>
+            <div style="padding:16px;display:flex;flex-direction:column;gap:18px">
+              <!-- Nama Satker -->
+              <div>
+                <label style="font-size:12px;font-weight:600;color:var(--t2);display:block;margin-bottom:6px">Nama Satuan Kerja</label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <input id="satkerNameInput" type="text" placeholder="mis. KEMENTERIAN PERHUBUNGAN"
+                    style="flex:1;min-width:220px;padding:8px 11px;border:1px solid var(--bd);border-radius:8px;
+                    background:var(--card);color:var(--t1);font-size:13px"/>
+                  <button class="btn-primary" onclick="saveSatkerName()" style="white-space:nowrap">
+                    <i class="fas fa-save"></i> Simpan Nama
+                  </button>
+                </div>
+                <div style="font-size:11px;color:var(--t3);margin-top:5px">
+                  Nama ini menggantikan teks di bawah judul "Monitoring Anggaran DIPA".
+                </div>
+              </div>
+              <!-- Logo Satker -->
+              <div>
+                <label style="font-size:12px;font-weight:600;color:var(--t2);display:block;margin-bottom:6px">Logo Satker</label>
+                <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+                  <div style="width:56px;height:56px;border:1px dashed var(--bd);border-radius:10px;
+                    display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bg)">
+                    <img id="logoPreview" alt="Logo" style="max-width:100%;max-height:100%;display:none"/>
+                    <i id="logoPreviewIcon" class="fas fa-image" style="color:var(--t3);font-size:18px"></i>
+                  </div>
+                  <input type="file" id="logoFileInput" accept="image/png,image/jpeg,image/svg+xml,image/webp" style="display:none"/>
+                  <button class="btn-primary" onclick="document.getElementById('logoFileInput').click()">
+                    <i class="fas fa-upload"></i> Pilih Logo
+                  </button>
+                  <button class="btn-secondary" id="logoRemoveBtn" onclick="removeSatkerLogo()" style="display:none">
+                    <i class="fas fa-trash"></i> Hapus Logo
+                  </button>
+                  <span style="font-size:11px;color:var(--t3)">PNG/JPG/SVG/WebP, maksimal ~200&nbsp;KB. Tampil di depan judul "Dashboard".</span>
+                </div>
+              </div>
             </div>
           </div>
 
