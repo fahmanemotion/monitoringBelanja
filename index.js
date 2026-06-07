@@ -605,7 +605,8 @@ async function loadAllFromSupabase() {
         kro_kode:  r.kro_kode,  kro_nama:  r.kro_nama,
         ro_kode:   r.ro_kode,   ro_full:   r.ro_full, ro_nama: r.ro_nama,
         akun_kode: r.akun_kode, akun_nama: r.akun_nama,
-        jenis: (r.akun_kode ? kodeToJenis(r.akun_kode) : (r.jenis || 'barang')), sumber: r.sumber,
+        jenis: (r.akun_kode ? kodeToJenis(r.akun_kode) : (r.jenis || 'barang')),
+        sumber: (r.akun_kode ? kodeToSumber(r.akun_kode) : (r.sumber || 'rm')),
         pagu: parseFloat(r.pagu)||0, realisasi: parseFloat(r.realisasi)||0,
         realisasi_lalu: parseFloat(r.realisasi_lalu)||0,
         realisasi_bulan: parseFloat(r.realisasi_bulan)||0,
@@ -2300,8 +2301,8 @@ function parseSaktiWorkbook(wb) {
     return 'barang';
   }
   function akunSumber(k) {
-    // 525xxx = BLU (Belanja Barang BLU); everything else = RM
-    return (k && k.startsWith('525')) ? 'blu' : 'rm';
+    // BLU: 525xxx (Belanja Barang BLU) & 537xxx (Belanja Modal BLU); selain itu RM
+    return kodeToSumber(k);
   }
 
   // ── Context trackers
@@ -3637,6 +3638,18 @@ function kodeToJenis(k) {
   if (k.charAt(0) === '5' && k.charAt(1) === '1') return 'pegawai';
   if (k.charAt(0) === '5' && k.charAt(1) === '3') return 'modal';
   return 'barang';
+}
+
+/**
+ * kodeToSumber — klasifikasi sumber dana dari KODE AKUN (sumber kebenaran).
+ *   BLU  : 525xxx (Belanja Barang BLU) & 537xxx (Belanja Modal BLU)
+ *   RM   : selain itu (mis. 511, 521, 531, 532, 534, dll)
+ * Dipisah dari jenis belanja, sehingga ke depan bisa difilter berlapis:
+ *   jenis belanja (pegawai/barang/modal) → lalu sumber dana (RM/BLU).
+ */
+function kodeToSumber(k) {
+  k = String(k || '');
+  return (k.indexOf('525') === 0 || k.indexOf('537') === 0) ? 'blu' : 'rm';
 }
 
 function srcChip(s) {
