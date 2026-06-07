@@ -310,9 +310,11 @@
             style="color:var(--red)">
             <i class="fas fa-sign-out-alt"></i>
           </button>
-          <div class="ta-chip">
+          <div class="ta-chip" title="Tahun Anggaran — menentukan tahun data yang ditampilkan & tujuan upload realisasi">
             <i class="fas fa-calendar-days"></i>
-            <span id="taLabel">TA 2025</span>
+            <select id="taSelect" class="ta-select">
+              <option value="">TA —</option>
+            </select>
           </div>
         </div>
       </header>
@@ -329,6 +331,15 @@
               </div>
             </div>
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <!-- Filter Tahun -->
+              <div style="display:flex;align-items:center;gap:6px">
+                <label style="font-size:11.5px;font-weight:600;color:var(--t3);white-space:nowrap">
+                  <i class="fas fa-calendar-days" style="margin-right:3px"></i>Tahun:
+                </label>
+                <select id="filterTahun" class="fsel" style="font-size:12px;padding:5px 28px 5px 9px;min-width:90px">
+                  <option value="">—</option>
+                </select>
+              </div>
               <!-- Filter Bulan -->
               <div style="display:flex;align-items:center;gap:6px">
                 <label style="font-size:11.5px;font-weight:600;color:var(--t3);white-space:nowrap">
@@ -372,9 +383,15 @@
                     Bar: per bulan &nbsp;|&nbsp; Line: kumulatif (Kurva S)
                   </div>
                 </div>
-                <div class="pill-group" id="chartTypePills">
-                  <button class="pill active" data-ctype="bar">Bar</button>
-                  <button class="pill" data-ctype="line">Line</button>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <button class="pill compare-btn" id="btnCompareYears"
+                    title="Bandingkan realisasi 3 tahun (tahun berjalan + 2 tahun ke belakang)">
+                    <i class="fas fa-layer-group" style="margin-right:4px"></i>Perbandingan
+                  </button>
+                  <div class="pill-group" id="chartTypePills">
+                    <button class="pill active" data-ctype="bar">Bar</button>
+                    <button class="pill" data-ctype="line">Line</button>
+                  </div>
                 </div>
               </div>
               <div class="chart-body">

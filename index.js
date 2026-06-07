@@ -75,6 +75,10 @@ var APP = {
   realWb: null,    // workbook FA Detail yang sedang disiapkan upload
   realParsed: null, // {bulanIdx, nilai, namaFile} hasil parse sebelum disimpan
   viewMonth: -1,   // -1 = semua bulan, 0-11 = filter bulan tertentu
+  // ── Multi-tahun ──
+  viewYear: '',          // tahun anggaran yang sedang dipilih (string)
+  realisasiByYear: {},   // { '2026': [12 entri], '2025': [...], '2024': [...] }
+  compareYears: false,   // mode perbandingan 3 tahun di chart bulanan
   // Auth
   currentUser: null,  // { id, username, role } setelah login
 };
@@ -495,6 +499,8 @@ document.addEventListener('DOMContentLoaded', function () {
   wirePills();
   wireFilters();
   wireKeuFilters();
+  wireYearSelectors();
+  populateYearSelectors();
   wireUpload();
   wireRealUpload();
   wireTargetUpload();
@@ -595,18 +601,25 @@ async function loadAllFromSupabase() {
       }
     });
 
-    // ── Realisasi Bulanan ──
-    APP.realisasiBulanan = new Array(12).fill(null);
+    // ── Realisasi Bulanan (dikelompokkan per Tahun Anggaran) ──
+    var defaultYear = APP.meta.ta || String(new Date().getFullYear());
+    APP.realisasiByYear = {};
+    // Pastikan 3 tahun pada opsi selalu tersedia (meski kosong)
+    yearOptions().forEach(function(y){ APP.realisasiByYear[y] = emptyYearArr(); });
     realRows.forEach(function(r){
       var i = r.bulan_idx;
-      if (i >= 0 && i <= 11) {
-        APP.realisasiBulanan[i] = {
-          nilai: parseFloat(r.nilai)||0,
-          namaFile: r.nama_file || '',
-          tanggalUpdate: r.tanggal_update || '',
-        };
-      }
+      if (i < 0 || i > 11) return;
+      var yr = (r.ta != null && r.ta !== '') ? String(r.ta) : defaultYear;
+      if (!APP.realisasiByYear[yr]) APP.realisasiByYear[yr] = emptyYearArr();
+      APP.realisasiByYear[yr][i] = {
+        nilai: parseFloat(r.nilai)||0,
+        namaFile: r.nama_file || '',
+        tanggalUpdate: r.tanggal_update || '',
+      };
     });
+    // Tahun aktif default = tahun berjalan; realisasiBulanan = referensi tahun aktif
+    populateYearSelectors();
+    APP.realisasiBulanan = getYearArr(APP.viewYear);
 
     APP.filtered = APP.data.slice();
     APP.keuFiltered = APP.data.slice();
@@ -653,6 +666,78 @@ function showEmptyState() {
 }
 
 /* ── Full render ────────────────────────────────────────────── */
+/* ── Multi-Tahun (Tahun Anggaran) ───────────────────────────── */
+
+/** yearOptions — tahun berjalan + 2 tahun ke belakang (3 tahun) */
+function yearOptions() {
+  var cy = new Date().getFullYear();
+  return [String(cy), String(cy - 1), String(cy - 2)];
+}
+
+/** emptyYearArr — 12 slot kosong untuk satu tahun */
+function emptyYearArr() {
+  return [null,null,null,null,null,null,null,null,null,null,null,null];
+}
+
+/** getYearArr — ambil (atau buat) array realisasi 12 bulan untuk satu tahun */
+function getYearArr(year) {
+  if (!APP.realisasiByYear[year]) APP.realisasiByYear[year] = emptyYearArr();
+  return APP.realisasiByYear[year];
+}
+
+/** populateYearSelectors — isi dropdown tahun di topnav & dashboard */
+function populateYearSelectors() {
+  var opts = yearOptions();
+  // Pastikan tahun terpilih valid; default = tahun berjalan
+  if (!opts.indexOf || opts.indexOf(APP.viewYear) === -1) APP.viewYear = opts[0];
+  ['taSelect','filterTahun'].forEach(function(id){
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    sel.innerHTML = opts.map(function(y){
+      return '<option value="' + y + '"' + (y === APP.viewYear ? ' selected' : '') + '>' +
+             (id === 'taSelect' ? 'TA ' + y : y) + '</option>';
+    }).join('');
+    sel.value = APP.viewYear;
+  });
+}
+
+/** setViewYear — ganti tahun aktif, sinkronkan kontrol, render ulang tampilan */
+function setViewYear(year) {
+  APP.viewYear = String(year);
+  // realisasiBulanan = referensi langsung ke array tahun terpilih (agar mutasi tersimpan)
+  APP.realisasiBulanan = getYearArr(APP.viewYear);
+  // Sinkronkan kedua dropdown
+  ['taSelect','filterTahun'].forEach(function(id){
+    var sel = document.getElementById(id);
+    if (sel && sel.value !== APP.viewYear) sel.value = APP.viewYear;
+  });
+  refreshYearViews();
+}
+
+/** refreshYearViews — render ulang bagian yang bergantung pada tahun terpilih */
+function refreshYearViews() {
+  if (APP.data.length === 0) return;
+  renderKPIs();
+  renderBulananChart();
+  renderRealisasiBulananTable();
+  updateOrgLabel();
+}
+
+/** wireYearSelectors — pasang event ke dropdown tahun (topnav + dashboard) */
+function wireYearSelectors() {
+  ['taSelect','filterTahun'].forEach(function(id){
+    var sel = document.getElementById(id);
+    if (sel) sel.addEventListener('change', function(){ setViewYear(this.value); });
+  });
+  // Tombol Perbandingan di chart bulanan
+  var cmp = document.getElementById('btnCompareYears');
+  if (cmp) cmp.addEventListener('click', function(){
+    APP.compareYears = !APP.compareYears;
+    this.classList.toggle('active', APP.compareYears);
+    renderBulananChart();
+  });
+}
+
 function renderAll() {
   renderKPIs();
   renderBulananChart();
@@ -1260,6 +1345,41 @@ function toCumulative(arr) {
   });
 }
 
+/**
+ * realPerBulanFromArr — konversi array realisasi 12 bulan (satu tahun) ke Rp Juta.
+ * Mengembalikan null bila tahun tsb tidak punya data upload sama sekali.
+ */
+function realPerBulanFromArr(arr) {
+  if (!arr) return null;
+  var hasUpload = arr.some(function(v){ return v !== null && v !== undefined; });
+  if (!hasUpload) return null;
+  var lastIdx = -1;
+  arr.forEach(function(v, j){ if (v !== null && v !== undefined) lastIdx = j; });
+  return arr.map(function(v, i){
+    if (v !== null && v !== undefined) return Math.round(v.nilai / 1e6);
+    if (i > lastIdx) return null;
+    return 0;
+  });
+}
+
+/**
+ * realPerBulanForYear — realisasi per bulan (Rp Juta) untuk tahun tertentu.
+ * Tahun SAKTI utama yang belum punya upload bulanan → fallback distribusi data SAKTI.
+ * Tahun lain tanpa data → array null (kosong di chart).
+ */
+function realPerBulanForYear(year, curMonth, totalRl, totalRi) {
+  var r = realPerBulanFromArr(APP.realisasiByYear[year]);
+  if (r) return r;
+  if (String(year) === String(APP.meta.ta)) {
+    return Array.from({length: 12}, function (_, i) {
+      if (i < curMonth && curMonth > 0) return Math.round(totalRl / curMonth / 1e6);
+      if (i === curMonth)               return Math.round(totalRi / 1e6);
+      return null;
+    });
+  }
+  return emptyYearArr().map(function(){ return null; });
+}
+
 function renderBulananChart() {
   if (APP.data.length === 0) return;
   var rows = APP.source === 'gabungan' ? APP.data :
@@ -1307,6 +1427,75 @@ function renderBulananChart() {
 
   var ctx2 = document.getElementById('cBulanan').getContext('2d');
   if (CHARTS.bulanan) CHARTS.bulanan.destroy();
+
+  // ── Mode Perbandingan: 3 realisasi tahunan (berjalan + 2 tahun ke belakang) ──
+  if (APP.compareYears) {
+    var years = yearOptions();
+    var palette = [
+      { bg: 'rgba(14,159,110,.85)', border: '#0e9f6e' }, // tahun berjalan
+      { bg: 'rgba(26,86,219,.85)',  border: '#1a56db' }, // tahun -1
+      { bg: 'rgba(227,160,8,.85)',  border: '#e3a008' }, // tahun -2
+    ];
+    var cmpDatasets = years.map(function (y, idx) {
+      var per = realPerBulanForYear(y, curMonth, totalRl, totalRi);
+      var col = palette[idx % palette.length];
+      return {
+        label: 'Realisasi ' + y,
+        data: isBar ? per : toCumulative(per),
+        backgroundColor: isBar ? col.bg : (idx === 0 ? 'rgba(14,159,110,.06)' : 'transparent'),
+        borderColor: col.border,
+        borderWidth: isBar ? 0 : 2.5,
+        borderRadius: 5,
+        fill: false,
+        tension: isBar ? 0 : 0.38,
+        pointRadius: isBar ? 0 : 4,
+        pointStyle: isBar ? 'rect' : 'circle',
+        pointBackgroundColor: col.border,
+        pointBorderColor: '#fff',
+        pointBorderWidth: isBar ? 0 : 1.5,
+        spanGaps: false,
+        order: idx + 1,
+      };
+    });
+    CHARTS.bulanan = new Chart(ctx2, {
+      type: APP.chartType,
+      data: { labels: months, datasets: cmpDatasets },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', labels: { color: tc, usePointStyle: true,
+            pointStyleWidth: 10, font: { family: "'DM Sans',sans-serif", size: 11 } } },
+          title: { display: true,
+            text: isBar ? 'Perbandingan Realisasi per Bulan' : 'Perbandingan Kurva S (Kumulatif)',
+            color: isDark ? '#e2e8f0' : '#0d1b2a',
+            font: { family: "'DM Sans',sans-serif", size: 14, weight: '700' },
+            padding: { top: 4, bottom: 4 } },
+          tooltip: {
+            backgroundColor: isDark ? '#1e2d45' : '#fff',
+            titleColor: isDark ? '#e2e8f0' : '#0d1b2a',
+            bodyColor: isDark ? '#94a3b8' : '#4a5568',
+            borderColor: gc, borderWidth: 1, padding: 10, cornerRadius: 6,
+            callbacks: { label: function (c) {
+              if (c.parsed.y === null) return '';
+              return ' ' + c.dataset.label + ': Rp ' + c.parsed.y.toLocaleString('id-ID') + ' Jt';
+            } },
+          },
+        },
+        scales: {
+          x: { grid: { color: gc }, ticks: { color: tc, font: { size: 11 } } },
+          y: { grid: { color: gc },
+            ticks: { color: tc, font: { size: 11 },
+              callback: function (v) { return v >= 1000 ? Math.round(v/1000) + 'M' : v; } },
+            title: { display: true,
+              text: isBar ? 'Rp Juta (per bulan)' : 'Rp Juta (kumulatif)',
+              color: tc, font: { size: 10 } } },
+        },
+      },
+    });
+    return;
+  }
+
   CHARTS.bulanan = new Chart(ctx2, {
     type: APP.chartType,
     data: {
@@ -2188,17 +2377,19 @@ function updateOrgLabel() {
   var MONTHS_FULL = ['Januari','Februari','Maret','April','Mei','Juni',
                      'Juli','Agustus','September','Oktober','November','Desember'];
   var el = document.getElementById('orgSub');
-  var ta = document.getElementById('taLabel');
+  var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
   if (el) {
     var parts = [APP.meta.satker || 'Satuan Kerja'];
     if (APP.viewMonth >= 0) {
-      parts.push('Periode ' + MONTHS_FULL[APP.viewMonth] + (APP.meta.ta ? ' ' + APP.meta.ta : ''));
-    } else if (APP.meta.periode) {
-      parts.push('Periode ' + APP.meta.periode);
+      parts.push('Periode ' + MONTHS_FULL[APP.viewMonth] + ' ' + yr);
+    } else {
+      parts.push('Tahun Anggaran ' + yr);
     }
     el.textContent = parts.join(' — ');
   }
-  if (ta) ta.textContent = 'TA ' + (APP.meta.ta || new Date().getFullYear());
+  // Pastikan dropdown tahun mencerminkan tahun aktif
+  var taSel = document.getElementById('taSelect');
+  if (taSel && taSel.value !== APP.viewYear && APP.viewYear) taSel.value = APP.viewYear;
 }
 
 /* ── Reset ──────────────────────────────────────────────────── */
@@ -2765,11 +2956,14 @@ var MONTHS_ID = ['Januari','Februari','Maret','April','Mei','Juni',
  */
 async function saveRealisasiBulanan() {
   try {
+    var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
+    var arr = getYearArr(yr);
     var rows = [];
     for (var i = 0; i < 12; i++) {
-      var rb = APP.realisasiBulanan[i];
+      var rb = arr[i];
       if (!rb) continue;
       rows.push({
+        ta:             yr,
         bulan_idx:      i,
         nilai:          rb.nilai         || 0,
         nama_file:      rb.namaFile      || '',
@@ -2779,7 +2973,7 @@ async function saveRealisasiBulanan() {
     }
     if (rows.length === 0) return;
     await supaFetch('POST', 'realisasi_bulanan', {
-      query: 'on_conflict=bulan_idx',
+      query: 'on_conflict=ta,bulan_idx',
       body: rows,
       returning: false,
     });
@@ -2967,13 +3161,15 @@ async function simpanRealisasiBulanan() {
  */
 async function deleteRealisasiBulan(idx) {
   var nama = MONTHS_ID[idx];
-  if (!confirm('Hapus data realisasi ' + nama + '?')) return;
+  var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
+  if (!confirm('Hapus data realisasi ' + nama + ' tahun ' + yr + '?')) return;
   try {
-    await supaFetch('DELETE', 'realisasi_bulanan', { query: 'bulan_idx=eq.' + idx });
-    APP.realisasiBulanan[idx] = null;
+    await supaFetch('DELETE', 'realisasi_bulanan',
+      { query: 'ta=eq.' + encodeURIComponent(yr) + '&bulan_idx=eq.' + idx });
+    getYearArr(yr)[idx] = null;
     renderRealisasiBulananTable();
     renderBulananChart();
-    toast('info','Dihapus','Realisasi ' + nama + ' dihapus.');
+    toast('info','Dihapus','Realisasi ' + nama + ' ' + yr + ' dihapus.');
   } catch(e) {
     toast('error','Gagal Hapus', e.message);
   }
@@ -2983,15 +3179,18 @@ async function deleteRealisasiBulan(idx) {
  * clearAllRealisasiBulanan — hapus semua
  */
 async function clearAllRealisasiBulanan() {
-  var count = APP.realisasiBulanan.filter(function(v){ return v !== null; }).length;
-  if (count === 0) { toast('info','Kosong','Tidak ada data realisasi'); return; }
-  if (!confirm('Hapus semua ' + count + ' data realisasi bulanan?')) return;
+  var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
+  var arr = getYearArr(yr);
+  var count = arr.filter(function(v){ return v !== null; }).length;
+  if (count === 0) { toast('info','Kosong','Tidak ada data realisasi tahun ' + yr); return; }
+  if (!confirm('Hapus semua ' + count + ' data realisasi bulanan tahun ' + yr + '?')) return;
   try {
-    await supaFetch('DELETE', 'realisasi_bulanan', { query: 'id=gt.0' });
-    APP.realisasiBulanan = [null,null,null,null,null,null,null,null,null,null,null,null];
+    await supaFetch('DELETE', 'realisasi_bulanan', { query: 'ta=eq.' + encodeURIComponent(yr) });
+    APP.realisasiByYear[yr] = emptyYearArr();
+    APP.realisasiBulanan = getYearArr(yr);
     renderRealisasiBulananTable();
     renderBulananChart();
-    toast('info','Semua Dihapus','Seluruh data realisasi bulanan telah dihapus.');
+    toast('info','Semua Dihapus','Seluruh data realisasi bulanan tahun ' + yr + ' telah dihapus.');
   } catch(e) {
     toast('error','Gagal Hapus', e.message);
   }
@@ -3008,7 +3207,8 @@ function renderRealisasiBulananTable() {
 
   var count = 0, total = 0;
   APP.realisasiBulanan.forEach(function(v){ if (v !== null){ count++; total += v.nilai; } });
-  if (badge) badge.textContent = count + ' bulan tersimpan';
+  var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
+  if (badge) badge.textContent = count + ' bulan • TA ' + yr;
   if (totEl) totEl.textContent = fmtM(total);
 
   if (count === 0) {
