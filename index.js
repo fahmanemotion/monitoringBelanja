@@ -798,12 +798,14 @@ function wireYearSelectors() {
     var sel = document.getElementById(id);
     if (sel) sel.addEventListener('change', function(){ setViewYear(this.value); });
   });
-  // Tombol Perbandingan di chart bulanan
-  var cmp = document.getElementById('btnCompareYears');
-  if (cmp) cmp.addEventListener('click', function(){
-    APP.compareYears = !APP.compareYears;
-    this.classList.toggle('active', APP.compareYears);
-    renderBulananChart();
+  // Grup mode chart: "Tahun Berjalan" vs "Perbandingan" (saling eksklusif)
+  document.querySelectorAll('#chartModePills .pill').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#chartModePills .pill').forEach(function (b) { b.classList.remove('active'); });
+      this.classList.add('active');
+      APP.compareYears = (this.dataset.mode === 'compare');
+      renderBulananChart();
+    });
   });
 }
 
@@ -2700,8 +2702,8 @@ async function addBlokir() {
     var saved = rows && rows[0];
     if (!saved) throw new Error('Tidak ada data dikembalikan');
     if (!APP.blokirByYear[yr]) APP.blokirByYear[yr] = [];
-    if (APP.blokir !== APP.blokirByYear[yr]) APP.blokir = APP.blokirByYear[yr];
-    APP.blokir.push({ id: saved.id, uraian: saved.uraian, nilai: parseFloat(saved.nilai), sumber: saved.sumber, ta: yr });
+    APP.blokirByYear[yr].push({ id: saved.id, uraian: saved.uraian, nilai: parseFloat(saved.nilai), sumber: saved.sumber, ta: yr });
+    APP.blokir = APP.blokirByYear[yr];   // satu sumber kebenaran, referensi sama
     document.getElementById('blokirUraian').value = '';
     document.getElementById('blokirNilai').value  = '';
     renderBlokirTable();
@@ -2717,9 +2719,16 @@ async function addBlokir() {
  */
 async function deleteBlokir(id) {
   id = Number(id);
+  var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
   try {
     await supaFetch('DELETE', 'blokir', { query: 'id=eq.' + id });
-    APP.blokir = APP.blokir.filter(function(b){ return Number(b.id) !== id; });
+    if (!APP.blokirByYear[yr]) APP.blokirByYear[yr] = [];
+    var arr = APP.blokirByYear[yr];
+    // Hapus IN-PLACE agar referensi array tetap sama (cegah salinan basi muncul lagi)
+    for (var i = arr.length - 1; i >= 0; i--) {
+      if (Number(arr[i].id) === id) arr.splice(i, 1);
+    }
+    APP.blokir = arr;               // jaga agar keduanya menunjuk array yang sama
     renderBlokirTable();
     renderKPIs();
     toast('info', 'Dihapus', 'Entry blokir telah dihapus');

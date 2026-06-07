@@ -383,11 +383,21 @@
                     Bar: per bulan &nbsp;|&nbsp; Line: kumulatif (Kurva S)
                   </div>
                 </div>
-                <div style="display:flex;align-items:center;gap:8px">
-                  <button class="compare-btn" id="btnCompareYears"
-                    title="Bandingkan realisasi 3 tahun (tahun berjalan + 2 tahun ke belakang)">
-                    <i class="fas fa-layer-group" style="margin-right:4px"></i>Perbandingan
-                  </button>
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <!-- Mode tampilan: Tahun Berjalan vs Perbandingan (saling eksklusif) -->
+                  <div class="pill-group mode-group" id="chartModePills">
+                    <button class="pill active" data-mode="current"
+                      title="Tampilkan hanya realisasi tahun berjalan (Realisasi vs Target)">
+                      <i class="fas fa-calendar-check" style="margin-right:4px"></i>Tahun Berjalan
+                    </button>
+                    <button class="pill compare-btn" data-mode="compare"
+                      title="Bandingkan realisasi 3 tahun (tahun berjalan + 2 tahun ke belakang)">
+                      <i class="fas fa-layer-group" style="margin-right:4px"></i>Perbandingan
+                    </button>
+                  </div>
+                  <!-- Pemisah visual agar beda dari Bar/Line -->
+                  <span class="ctrl-divider"></span>
+                  <!-- Tipe chart -->
                   <div class="pill-group" id="chartTypePills">
                     <button class="pill active" data-ctype="bar">Bar</button>
                     <button class="pill" data-ctype="line">Line</button>
