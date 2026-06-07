@@ -190,7 +190,7 @@ function applyRoleRestrictions(role) {
 
   if (role === 'admin') {
     // Admin: tampilkan kembali semua bagian (jaga-jaga setelah logout/login ganti role)
-    var showIds = ['uploadBtn','keuUploadBtn','setUploadBtn','nav-pengaturan',
+    var showIds = ['uploadBtn','setUploadBtn','nav-pengaturan',
                    'nav-manajemen','btnProcess','sectionManajemenUser'];
     showIds.forEach(function(id){
       var el = document.getElementById(id);
@@ -204,7 +204,7 @@ function applyRoleRestrictions(role) {
 
   // User (view-only): sembunyikan fitur edit & manajemen penuh,
   // TAPI tetap boleh akses Manajemen Akun untuk ubah password sendiri.
-  var hideIds = ['uploadBtn','keuUploadBtn','setUploadBtn',
+  var hideIds = ['uploadBtn','setUploadBtn',
                  'nav-pengaturan','btnProcess','sectionManajemenUser'];
   hideIds.forEach(function(id){
     var el = document.getElementById(id);
@@ -736,6 +736,14 @@ function switchPage(pageId, navEl) {
       Object.keys(CHARTS).forEach(function (k) { if (CHARTS[k]) CHARTS[k].resize(); });
     }, 50);
   }
+  // Tombol "Upload Excel SAKTI" di topnav hanya relevan untuk input data,
+  // yaitu di Dashboard & Pengaturan Data. Disembunyikan di Keuangan & Manajemen Akun.
+  var topUpload = document.getElementById('uploadBtn');
+  if (topUpload) {
+    var canUpload = !APP.viewOnly && (pageId === 'dashboard' || pageId === 'pengaturan');
+    topUpload.style.display = canUpload ? '' : 'none';
+  }
+
   // Halaman Manajemen Akun
   if (pageId === 'manajemen' && APP.currentUser) {
     fillMyAccountCard();
@@ -1820,7 +1828,7 @@ function parseSaktiWorkbook(wb) {
 /* ── Upload wiring ──────────────────────────────────────────── */
 function wireUpload() {
   var openFn = function () { document.getElementById('uploadModal').classList.add('open'); };
-  var ids = ['uploadBtn', 'keuUploadBtn', 'setUploadBtn'];
+  var ids = ['uploadBtn', 'setUploadBtn'];
   ids.forEach(function (id) {
     var el = document.getElementById(id);
     if (el) el.addEventListener('click', openFn);
