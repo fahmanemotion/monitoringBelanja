@@ -605,7 +605,7 @@ async function loadAllFromSupabase() {
         kro_kode:  r.kro_kode,  kro_nama:  r.kro_nama,
         ro_kode:   r.ro_kode,   ro_full:   r.ro_full, ro_nama: r.ro_nama,
         akun_kode: r.akun_kode, akun_nama: r.akun_nama,
-        jenis: r.jenis, sumber: r.sumber,
+        jenis: (r.akun_kode ? kodeToJenis(r.akun_kode) : (r.jenis || 'barang')), sumber: r.sumber,
         pagu: parseFloat(r.pagu)||0, realisasi: parseFloat(r.realisasi)||0,
         realisasi_lalu: parseFloat(r.realisasi_lalu)||0,
         realisasi_bulan: parseFloat(r.realisasi_bulan)||0,
@@ -1716,11 +1716,12 @@ function renderPieChart() {
   var rows = APP.pieSource === 'gabungan' ? APP.data :
     APP.data.filter(function (r) { return r.sumber === APP.pieSource; });
 
-  // Always exactly 3 groups — classify by jenis field
+  // Always exactly 3 groups — klasifikasi dari KODE AKUN (51/52/53), bukan field tersimpan
   var groups = { 'Belanja Pegawai': 0, 'Belanja Barang': 0, 'Belanja Modal': 0 };
   rows.forEach(function (r) {
-    var lbl = r.jenis === 'pegawai' ? 'Belanja Pegawai' :
-              r.jenis === 'modal'   ? 'Belanja Modal'   : 'Belanja Barang';
+    var j = kodeToJenis(r.akun_kode);
+    var lbl = j === 'pegawai' ? 'Belanja Pegawai' :
+              j === 'modal'   ? 'Belanja Modal'   : 'Belanja Barang';
     groups[lbl] += r.pagu;
   });
 
@@ -3623,6 +3624,19 @@ function fmtJutaAsM(y) {
 
 function pctClass(p) {
   return p >= 80 ? 'pct-h' : p >= 50 ? 'pct-m' : p >= 20 ? 'pct-l' : 'pct-z';
+}
+
+/**
+ * kodeToJenis — klasifikasi jenis belanja dari KODE AKUN (sumber kebenaran).
+ *   51xxxx → pegawai, 53xxxx → modal, selain itu (52xxxx dll) → barang.
+ * Dipakai agar Komposisi Anggaran selalu benar walau field 'jenis' tersimpan
+ * kosong/keliru (mis. data tahun lama).
+ */
+function kodeToJenis(k) {
+  k = String(k || '');
+  if (k.charAt(0) === '5' && k.charAt(1) === '1') return 'pegawai';
+  if (k.charAt(0) === '5' && k.charAt(1) === '3') return 'modal';
+  return 'barang';
 }
 
 function srcChip(s) {
