@@ -230,6 +230,18 @@ function applyRoleRestrictions(role) {
 }
 
 /**
+ * blockIfViewOnly — penjaga: tolak aksi pengubah data untuk akun view-only (role user).
+ * Mengembalikan true (dan menampilkan toast) bila harus diblokir.
+ */
+function blockIfViewOnly() {
+  if (APP.viewOnly) {
+    toast('error', 'Akses Ditolak', 'Akun Anda hanya dapat melihat data (read-only). Hubungi Admin untuk perubahan data.');
+    return true;
+  }
+  return false;
+}
+
+/**
  * fillMyAccountCard — isi info akun yang sedang login di kartu "Akun Saya"
  */
 function fillMyAccountCard() {
@@ -351,6 +363,7 @@ function renderUserTable(users) {
  * updateUserRole — ubah role akun (admin <-> user)
  */
 async function updateUserRole(id, role, username) {
+  if (blockIfViewOnly()) return;
   if (APP.currentUser && APP.currentUser.id === id) {
     toast('error','Tidak Diizinkan','Tidak dapat mengubah role akun sendiri');
     loadUsers();
@@ -447,6 +460,7 @@ async function submitPwdChange() {
  * addUser — tambah akun baru
  */
 async function addUser() {
+  if (blockIfViewOnly()) return;
   var username = (document.getElementById('newUsername').value || '').trim().toLowerCase();
   var password = document.getElementById('newPassword').value || '';
   var role     = document.getElementById('newRole').value;
@@ -481,6 +495,7 @@ async function addUser() {
  * deleteUser — hapus akun
  */
 async function deleteUser(id, username) {
+  if (blockIfViewOnly()) return;
   if (!confirm('Hapus akun "' + username + '"?')) return;
   try {
     await supaFetch('DELETE', 'app_users', { query: 'id=eq.' + id });
@@ -2478,6 +2493,7 @@ function closeModal() {
 }
 
 function handleFile(files) {
+  if (blockIfViewOnly()) return;
   if (!files || !files[0]) return;
   var f = files[0];
   if (!/\.(xlsx|xls)$/i.test(f.name)) {
@@ -2522,6 +2538,7 @@ function handleFile(files) {
 }
 
 async function processUpload() {
+  if (blockIfViewOnly()) return;
   if (!APP.rawWb) { toast('error', 'Tidak Ada File', 'Pilih file terlebih dahulu'); return; }
 
   // ── Re-validasi tahun (fail-fast) — tahun bisa berubah setelah file dipilih ──
@@ -2638,6 +2655,7 @@ function updateOrgLabel() {
 
 /* ── Reset ──────────────────────────────────────────────────── */
 async function resetData() {
+  if (blockIfViewOnly()) return;
   var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
   if (!confirm('Reset data SAKTI tahun ' + yr + '? Data tahun lain & realisasi bulanan tidak dihapus.')) return;
   try {
@@ -2685,6 +2703,7 @@ function formatBlokirInput(el) {
  * addBlokir — tambahkan entry blokir baru dari form input
  */
 async function addBlokir() {
+  if (blockIfViewOnly()) return;
   var uraian   = (document.getElementById('blokirUraian').value || '').trim();
   var nilaiStr = (document.getElementById('blokirNilai').value || '').replace(/[^0-9]/g, '');
   var sumber   = document.getElementById('blokirSumber').value;
@@ -2718,6 +2737,7 @@ async function addBlokir() {
  * deleteBlokir — hapus satu entry blokir berdasarkan id
  */
 async function deleteBlokir(id) {
+  if (blockIfViewOnly()) return;
   id = Number(id);
   var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
   try {
@@ -2741,6 +2761,7 @@ async function deleteBlokir(id) {
  * clearAllBlokir — hapus semua entry blokir
  */
 async function clearAllBlokir() {
+  if (blockIfViewOnly()) return;
   var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
   var count = APP.blokir.length;
   if (count === 0) { toast('info', 'Kosong', 'Tidak ada data blokir tahun ' + yr); return; }
@@ -2868,6 +2889,7 @@ function wireTargetUpload() {
  * Nilai pakai prefix tanda kutip ('956214988) — strip sebelum parse
  */
 function handleTargetFile(files) {
+  if (blockIfViewOnly()) return;
   if (!files || !files[0]) return;
   var f = files[0];
   if (!/\.(xlsx|xls)$/i.test(f.name)) {
@@ -3014,6 +3036,7 @@ function handleTargetFile(files) {
  * simpanTargetDariUpload — commit hasil parse ke APP state + localStorage
  */
 async function simpanTargetDariUpload() {
+  if (blockIfViewOnly()) return;
   if (!APP._targetParsed) {
     toast('error','Belum Ada Data','Upload file terlebih dahulu'); return;
   }
@@ -3279,6 +3302,7 @@ function wireRealUpload() {
  * handleRealFile — baca file FA Detail dan parse totalRealisasi + periode
  */
 function handleRealFile(files) {
+  if (blockIfViewOnly()) return;
   if (!files || !files[0]) return;
   var f = files[0];
   if (!/\.(xlsx|xls)$/i.test(f.name)) {
@@ -3425,6 +3449,7 @@ function handleRealFile(files) {
  * simpanRealisasiBulanan — simpan hasil parse ke APP.realisasiBulanan[bulanIdx]
  */
 async function simpanRealisasiBulanan() {
+  if (blockIfViewOnly()) return;
   if (!APP.realParsed) {
     toast('error','Belum Ada Data','Upload file FA Detail terlebih dahulu'); return;
   }
@@ -3468,6 +3493,7 @@ async function simpanRealisasiBulanan() {
  * deleteRealisasiBulan — hapus data satu bulan
  */
 async function deleteRealisasiBulan(idx) {
+  if (blockIfViewOnly()) return;
   var nama = MONTHS_ID[idx];
   var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
   if (!confirm('Hapus data realisasi ' + nama + ' tahun ' + yr + '?')) return;
@@ -3487,6 +3513,7 @@ async function deleteRealisasiBulan(idx) {
  * clearAllRealisasiBulanan — hapus semua
  */
 async function clearAllRealisasiBulanan() {
+  if (blockIfViewOnly()) return;
   var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
   var arr = getYearArr(yr);
   var count = arr.filter(function(v){ return v !== null; }).length;
