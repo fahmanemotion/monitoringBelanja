@@ -733,7 +733,21 @@ function getYearArr(year) {
 
 /** populateYearSelectors — isi dropdown tahun di topnav & dashboard */
 function populateYearSelectors() {
-  var opts = yearOptions();
+  var opts = yearOptions().slice();
+  // Sertakan SEMUA tahun yang sudah punya data agar tidak pernah lenyap dari dropdown
+  // (mis. saat tahun keluar dari jendela 3-tahun berjalan). Hanya menambah, tak menghapus.
+  var maps = ['dataByYear', 'blokirByYear', 'targetByYear', 'realisasiByYear'];
+  maps.forEach(function (mn) {
+    var m = APP[mn] || {};
+    Object.keys(m).forEach(function (y) {
+      var arr = m[y];
+      var has = mn === 'dataByYear'
+        ? (arr && arr.length > 0)
+        : (Array.isArray(arr) && arr.some(function (x) { return x; }));
+      if (has && opts.indexOf(String(y)) === -1) opts.push(String(y));
+    });
+  });
+  opts.sort(function (a, b) { return Number(b) - Number(a); });   // terbaru di atas
   // Pastikan tahun terpilih valid; default = tahun berjalan
   if (!opts.indexOf || opts.indexOf(APP.viewYear) === -1) APP.viewYear = opts[0];
   ['taSelect','filterTahun'].forEach(function(id){
@@ -2580,7 +2594,18 @@ async function processUpload() {
         console.warn('[SIPADU] Metadata body TA', result.meta.ta, '≠ header TA', upYear, '— memakai header.');
       }
 
-      // Simpan ke peta per tahun
+      // ── GUARD: jangan proses bila parse tidak menghasilkan baris ──
+      // (Mencegah data tahun yang ada tertimpa/terhapus oleh hasil kosong.)
+      if (!result.records || result.records.length === 0) {
+        if (bar) bar.style.width = '0';
+        if (lbl) lbl.textContent = 'Dibatalkan — tidak ada baris data';
+        toast('error', 'Data Kosong',
+          'File tidak menghasilkan baris data yang valid. Penyimpanan dibatalkan agar data TA ' +
+          upYear + ' yang sudah ada tidak hilang.');
+        return;
+      }
+
+      // Simpan ke peta per tahun (tampilan optimistis; akan diselaraskan bila simpan gagal)
       APP.dataByYear[upYear] = result.records.slice();
       APP.metaByYear[upYear] = { periode: result.meta.periode || '' };
       if (result.meta.satker) APP.meta.satker = result.meta.satker;
@@ -2590,9 +2615,15 @@ async function processUpload() {
       populateYearSelectors();
       bindYearSlices(upYear);
 
-      // Simpan ke Supabase — hanya ganti data tahun ini, tahun lain tetap aman
+      // ── Simpan ke Supabase dengan pola AMAN (non-destruktif) ──
+      // 1) Catat id baris LAMA tahun ini  2) INSERT data baru  3) baru hapus baris lama by id.
+      // Bila gagal di tengah, data lama TIDAK terhapus → tidak ada kehilangan data.
       try {
-        await supaFetch('DELETE', 'sakti_data', { query: 'ta=eq.' + encodeURIComponent(upYear) });
+        var oldRows = await supaFetch('GET', 'sakti_data',
+          { query: 'select=id&ta=eq.' + encodeURIComponent(upYear) + '&limit=100000', returning: true }) || [];
+        var oldIds = oldRows.map(function(o){ return o.id; });
+
+        // 2) INSERT data baru DULU (data lama masih ada sebagai cadangan)
         var batchSize = 500;
         for (var bi = 0; bi < result.records.length; bi += batchSize) {
           var batch = result.records.slice(bi, bi + batchSize).map(function(r) {
@@ -2612,6 +2643,14 @@ async function processUpload() {
           });
           await supaFetch('POST', 'sakti_data', { body: batch, returning: false });
         }
+
+        // 3) Setelah INSERT sukses, hapus baris LAMA by id (chunk agar URL tidak kepanjangan)
+        for (var di = 0; di < oldIds.length; di += 150) {
+          var chunk = oldIds.slice(di, di + 150);
+          await supaFetch('DELETE', 'sakti_data', { query: 'id=in.(' + chunk.join(',') + ')' });
+        }
+
+        // 4) Metadata (per-tahun untuk periode; global untuk satker/kode)
         var metaRows = [
           { key: 'satker',              value: result.meta.satker      || '' },
           { key: 'ta',                  value: upYear },
@@ -2622,7 +2661,13 @@ async function processUpload() {
           query: 'on_conflict=key', body: metaRows, returning: false,
         });
       } catch(saveErr) {
-        toast('error','Gagal Simpan','Tidak tersimpan ke database: ' + saveErr.message);
+        // Gagal simpan → data LAMA tidak terhapus. Selaraskan memori dengan DB agar jujur.
+        if (bar) bar.style.width = '0';
+        toast('error','Gagal Simpan',
+          'Data TA ' + upYear + ' TIDAK tersimpan: ' + saveErr.message +
+          '. Data sebelumnya tetap aman — silakan ulangi upload.');
+        try { await loadAllFromSupabase(); renderAll(); } catch(e2){}
+        return;
       }
 
       buildFilterOpts();
