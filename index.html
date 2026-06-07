@@ -506,9 +506,55 @@
                 <span class="count-badge" id="keuBadge">0 Baris</span>
               </div>
               <div class="filter-strip">
+                <div class="fg">
+                  <label>Status Realisasi</label>
+                  <select class="fsel" id="kfStatus">
+                    <option value="gabungan">Gabungan</option>
+                    <option value="sudah">Sudah Realisasi</option>
+                    <option value="belum">Belum Realisasi</option>
+                  </select>
+                </div>
+                <div class="fg">
+                  <label>Program</label>
+                  <select class="fsel" id="kfProg">
+                    <option value="">Semua Program</option>
+                  </select>
+                </div>
+                <div class="fg">
+                  <label>KRO</label>
+                  <select class="fsel" id="kfKRO">
+                    <option value="">Semua KRO</option>
+                  </select>
+                </div>
+                <div class="fg">
+                  <label>RO</label>
+                  <select class="fsel" id="kfRO">
+                    <option value="">Semua RO</option>
+                  </select>
+                </div>
+                <div class="fg">
+                  <label>Akun</label>
+                  <select class="fsel" id="kfAkun">
+                    <option value="">Semua Akun</option>
+                  </select>
+                </div>
+                <div class="fg">
+                  <label>Detail</label>
+                  <select class="fsel" id="kfDetail">
+                    <option value="">Semua Detail</option>
+                  </select>
+                </div>
+                <div class="fg">
+                  <label>Sumber Dana</label>
+                  <select class="fsel" id="kfSumber">
+                    <option value="">Gabungan</option>
+                    <option value="rm">RM</option>
+                    <option value="blu">BLU</option>
+                  </select>
+                </div>
                 <div class="fg" style="flex: 1">
                   <label>Cari</label>
-                  <div class="search-box" style="max-width: 100%">
+                  <div class="search-box">
                     <i class="fas fa-search"></i>
                     <input
                       type="text"
@@ -523,13 +569,13 @@
               <table class="dtbl">
                 <thead>
                   <tr>
-                    <th>Kode Akun</th>
-                    <th>Uraian / RO</th>
-                    <th>Sumber</th>
-                    <th style="text-align:right">Pagu</th>
-                    <th style="text-align:right">Realisasi s.d.</th>
-                    <th style="text-align:right">Sisa</th>
-                    <th>% Penyerapan</th>
+                    <th onclick="sortKeu('kode')">Kode <i class="fas fa-sort"></i></th>
+                    <th onclick="sortKeu('uraian')">Uraian / Akun <i class="fas fa-sort"></i></th>
+                    <th onclick="sortKeu('sumber')">Sumber <i class="fas fa-sort"></i></th>
+                    <th onclick="sortKeu('pagu')" style="text-align:right">Pagu <i class="fas fa-sort"></i></th>
+                    <th onclick="sortKeu('realisasi')" style="text-align:right">Realisasi s.d. <i class="fas fa-sort"></i></th>
+                    <th onclick="sortKeu('sisa')" style="text-align:right">Sisa <i class="fas fa-sort"></i></th>
+                    <th onclick="sortKeu('persen')">% Penyerapan <i class="fas fa-sort"></i></th>
                   </tr>
                 </thead>
                 <tbody id="keuBody"></tbody>

@@ -55,8 +55,10 @@ var APP = {
   pieSource:'gabungan',
   chartType:'bar',
   data:     [],          // parsed akun records
-  filtered: [],          // after filter+search
+  filtered: [],          // after filter+search (Daftar Kegiatan / dashboard)
+  keuFiltered: [],       // after filter+search (Modul Keuangan)
   sort:     { col: null, dir: 'asc' },
+  keuSort:  { col: null, dir: 'asc' },
   kegPage:  1,
   keuPage:  1,
   PER_PAGE: 25,
@@ -492,6 +494,7 @@ document.addEventListener('DOMContentLoaded', function () {
   wireSourceTabs();
   wirePills();
   wireFilters();
+  wireKeuFilters();
   wireUpload();
   wireRealUpload();
   wireTargetUpload();
@@ -606,9 +609,11 @@ async function loadAllFromSupabase() {
     });
 
     APP.filtered = APP.data.slice();
+    APP.keuFiltered = APP.data.slice();
 
     if (APP.data.length > 0) {
       buildFilterOpts();
+      buildKeuFilterOpts();
       renderAll();
       updateOrgLabel();
     } else {
@@ -986,8 +991,6 @@ function wireFilters() {
   // Search
   var kq = document.getElementById('kegQ');
   if (kq) kq.addEventListener('input', applyFilters);
-  var keuq = document.getElementById('keuQ');
-  if (keuq) keuq.addEventListener('input', renderKeuTable);
 }
 
 function applyFilters() {
@@ -1546,39 +1549,250 @@ function updateExpandArrows() {
 
 function goKeg(p) { APP.kegPage = p; renderKegTable(); }
 
+/* ── Modul Keuangan: Filter + Tabel (meniru Daftar Kegiatan) ──
+   Memakai ID filter tersendiri (kf*) agar berdiri sendiri terpisah
+   dari Daftar Kegiatan di Dashboard. Tambahan: filter Status Realisasi. */
+
+function buildKeuFilterOpts() {
+  var progMap = {};
+  APP.data.forEach(function (r) { if (r.prog_kode) progMap[r.prog_kode] = r.prog_nama; });
+  var progPairs = Object.keys(progMap).sort().map(function (k) {
+    return [k, k + ' — ' + (progMap[k] || '')];
+  });
+  fillSelect('kfProg', progPairs);
+  rebuildKeuCascade();
+}
+
+function rebuildKeuCascade() {
+  var prog   = (document.getElementById('kfProg')   || {}).value || '';
+  var kro    = (document.getElementById('kfKRO')    || {}).value || '';
+  var ro     = (document.getElementById('kfRO')     || {}).value || '';
+  var akun   = (document.getElementById('kfAkun')   || {}).value || '';
+  var sumber = (document.getElementById('kfSumber') || {}).value || '';
+
+  function baseFilter(r) {
+    if (prog && r.prog_kode !== prog) return false;
+    if (kro  && r.kro_kode  !== kro)  return false;
+    if (ro   && r.ro_full   !== ro)   return false;
+    return true;
+  }
+
+  var kroMap = {};
+  APP.data.filter(function(r){ return !prog || r.prog_kode === prog; })
+    .forEach(function(r){ if (r.kro_kode) kroMap[r.kro_kode] = r.kro_nama; });
+  fillSelect('kfKRO', Object.keys(kroMap).sort().map(function(k){
+    return [k, k + ' — ' + (kroMap[k] || '')];
+  }));
+
+  var roMap = {};
+  APP.data.filter(function(r){
+    return (!prog || r.prog_kode === prog) && (!kro || r.kro_kode === kro);
+  }).forEach(function(r){ if (r.ro_full) roMap[r.ro_full] = r.ro_nama; });
+  fillSelect('kfRO', Object.keys(roMap).sort().map(function(k){
+    return [k, k + ' — ' + (roMap[k] || '').substring(0, 55)];
+  }));
+
+  var akunMap = {};
+  APP.data.filter(function(r){
+    if (!baseFilter(r)) return false;
+    if (sumber && r.sumber !== sumber) return false;
+    return true;
+  }).forEach(function(r){ if (r.akun_kode) akunMap[r.akun_kode] = r.akun_nama; });
+  fillSelect('kfAkun', Object.keys(akunMap).sort().map(function(k){
+    return [k, k + ' — ' + (akunMap[k] || '')];
+  }));
+
+  var detailSet = {};
+  APP.data.filter(function(r){
+    if (!baseFilter(r)) return false;
+    if (akun   && r.akun_kode !== akun)   return false;
+    if (sumber && r.sumber    !== sumber) return false;
+    return true;
+  }).forEach(function(r){
+    (r.details || []).forEach(function(d){ if (d.nama) detailSet[d.nama] = 1; });
+  });
+  fillSelect('kfDetail', Object.keys(detailSet).sort().map(function(k){ return [k, k]; }));
+
+  var detail = (document.getElementById('kfDetail') || {}).value || '';
+  var sumberSet = {};
+  APP.data.filter(function(r){
+    if (!baseFilter(r)) return false;
+    if (akun && r.akun_kode !== akun) return false;
+    if (detail) return (r.details||[]).some(function(d){ return d.nama===detail; });
+    return true;
+  }).forEach(function(r){ if (r.sumber) sumberSet[r.sumber] = 1; });
+  var sumberPairs = [];
+  if (sumberSet['rm'])  sumberPairs.push(['rm',  'RM']);
+  if (sumberSet['blu']) sumberPairs.push(['blu', 'BLU']);
+  fillSelect('kfSumber', sumberPairs);
+}
+
+function wireKeuFilters() {
+  var elProg = document.getElementById('kfProg');
+  if (elProg) elProg.addEventListener('change', function () {
+    ['kfKRO','kfRO','kfAkun','kfDetail','kfSumber'].forEach(function (id) {
+      var el = document.getElementById(id); if (el) el.value = '';
+    });
+    rebuildKeuCascade(); applyKeuFilters();
+  });
+  var elKRO = document.getElementById('kfKRO');
+  if (elKRO) elKRO.addEventListener('change', function () {
+    ['kfRO','kfAkun','kfDetail','kfSumber'].forEach(function (id) {
+      var el = document.getElementById(id); if (el) el.value = '';
+    });
+    rebuildKeuCascade(); applyKeuFilters();
+  });
+  var elRO = document.getElementById('kfRO');
+  if (elRO) elRO.addEventListener('change', function () {
+    ['kfAkun','kfDetail','kfSumber'].forEach(function (id) {
+      var el = document.getElementById(id); if (el) el.value = '';
+    });
+    rebuildKeuCascade(); applyKeuFilters();
+  });
+  var elAkun = document.getElementById('kfAkun');
+  if (elAkun) elAkun.addEventListener('change', function () {
+    ['kfDetail','kfSumber'].forEach(function (id) {
+      var el = document.getElementById(id); if (el) el.value = '';
+    });
+    rebuildKeuCascade(); applyKeuFilters();
+  });
+  var elDetail = document.getElementById('kfDetail');
+  if (elDetail) elDetail.addEventListener('change', function () {
+    ['kfSumber'].forEach(function (id) {
+      var el = document.getElementById(id); if (el) el.value = '';
+    });
+    rebuildKeuCascade(); applyKeuFilters();
+  });
+  var elSumber = document.getElementById('kfSumber');
+  if (elSumber) elSumber.addEventListener('change', function () {
+    ['kfAkun','kfDetail'].forEach(function (id) {
+      var el = document.getElementById(id); if (el) el.value = '';
+    });
+    rebuildKeuCascade(); applyKeuFilters();
+  });
+  // Filter Status Realisasi (khas Modul Keuangan)
+  var elStatus = document.getElementById('kfStatus');
+  if (elStatus) elStatus.addEventListener('change', applyKeuFilters);
+  // Pencarian
+  var keuq = document.getElementById('keuQ');
+  if (keuq) keuq.addEventListener('input', applyKeuFilters);
+}
+
+function applyKeuFilters() {
+  var prog   = (document.getElementById('kfProg')   || {}).value || '';
+  var kro    = (document.getElementById('kfKRO')    || {}).value || '';
+  var ro     = (document.getElementById('kfRO')     || {}).value || '';
+  var akun   = (document.getElementById('kfAkun')   || {}).value || '';
+  var detail = (document.getElementById('kfDetail') || {}).value || '';
+  var sumber = (document.getElementById('kfSumber') || {}).value || '';
+  var status = (document.getElementById('kfStatus') || {}).value || 'gabungan';
+  var q      = ((document.getElementById('keuQ')    || {}).value || '').toLowerCase().trim();
+
+  APP.keuFiltered = APP.data.filter(function (r) {
+    if (prog   && r.prog_kode !== prog)  return false;
+    if (kro    && r.kro_kode  !== kro)   return false;
+    if (ro     && r.ro_full   !== ro)    return false;
+    if (akun   && r.akun_kode !== akun)  return false;
+    if (detail) {
+      var found = (r.details || []).some(function (d) { return d.nama === detail; });
+      if (!found) return false;
+    }
+    if (sumber && r.sumber !== sumber)   return false;
+    // Filter status realisasi
+    if (status === 'sudah' && !(r.realisasi > 0)) return false;
+    if (status === 'belum' && r.realisasi > 0)    return false;
+    if (q) {
+      var hay = [r.kode, r.prog_kode, r.kro_kode, r.ro_kode, r.akun_kode,
+                 r.akun_nama, r.ro_nama, r.prog_nama, r.kro_nama].join(' ').toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+  APP.keuPage = 1;
+  renderKeuTable();
+}
+
+function sortKeu(col) {
+  if (APP.keuSort.col === col) APP.keuSort.dir = APP.keuSort.dir === 'asc' ? 'desc' : 'asc';
+  else { APP.keuSort.col = col; APP.keuSort.dir = 'asc'; }
+  APP.keuFiltered.sort(function (a, b) {
+    var va, vb;
+    if (col === 'uraian') { va = a.akun_nama; vb = b.akun_nama; }
+    else                  { va = a[col];      vb = b[col];      }
+    var cmp = typeof va === 'number' ? va - vb : String(va || '').localeCompare(String(vb || ''));
+    return APP.keuSort.dir === 'asc' ? cmp : -cmp;
+  });
+  renderKeuTable();
+}
+
 /* ── Keuangan Table ─────────────────────────────────────────── */
 function renderKeuTable() {
-  if (APP.data.length === 0) return;
-  var q = ((document.getElementById('keuQ') || {}).value || '').toLowerCase().trim();
-  var filtered = q ? APP.data.filter(function (r) {
-    return [r.akun_kode, r.akun_nama, r.kode, r.ro_nama, r.kro_nama, r.prog_nama]
-      .join(' ').toLowerCase().indexOf(q) !== -1;
-  }) : APP.data;
-
-  var total = filtered.length;
+  if (APP.data.length === 0) { return; }
+  var total = APP.keuFiltered.length;
   var from  = (APP.keuPage - 1) * APP.KEU_PP;
-  var rows  = filtered.slice(from, from + APP.KEU_PP);
+  var rows  = APP.keuFiltered.slice(from, from + APP.KEU_PP);
   var to    = Math.min(from + APP.KEU_PP, total);
 
   document.getElementById('keuBadge').textContent = total + ' Baris';
   document.getElementById('keuInfo').textContent = total === 0
-    ? 'Tidak ada data' : 'Menampilkan ' + (from + 1) + '–' + to + ' dari ' + total;
+    ? 'Tidak ada data ditemukan'
+    : 'Menampilkan ' + (from + 1) + '–' + to + ' dari ' + total;
 
   var tbody = document.getElementById('keuBody');
   if (!tbody) return;
-  tbody.innerHTML = rows.map(function (r) {
-    var pc = pctClass(r.persen);
-    return '<tr>' +
-      '<td class="mono">' + r.akun_kode + '</td>' +
-      '<td><div class="uraian-cell">' + esc(r.akun_nama) +
-        '<small>' + esc(r.ro_full) + ' — ' + esc((r.ro_nama || '').substring(0, 55)) + '</small></div></td>' +
-      '<td>' + srcChip(r.sumber) + '</td>' +
-      '<td class="mono" style="text-align:right">' + fmtM(r.pagu) + '</td>' +
-      '<td class="mono" style="text-align:right;color:var(--teal)">' + fmtM(r.realisasi) + '</td>' +
-      '<td class="mono" style="text-align:right;color:var(--amber)">' + fmtM(r.sisa) + '</td>' +
-      '<td><span class="pct-badge ' + pc + '">' + r.persen.toFixed(2) + '%</span></td>' +
-      '</tr>';
-  }).join('');
+
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--t3)">' +
+      '<i class="fas fa-inbox" style="font-size:24px;display:block;margin-bottom:8px"></i>' +
+      'Tidak ada data ditemukan</td></tr>';
+    renderPagin('keuPagin', total, APP.keuPage, APP.KEU_PP, 'goKeu');
+    return;
+  }
+
+  var html = '';
+  rows.forEach(function (r, i) {
+    var pc  = pctClass(r.persen);
+    var src = srcChip(r.sumber);
+    var rid = 'keurow-' + (r.id != null ? r.id : (from + i));
+    var hasDetails = r.details && r.details.length > 0;
+    var kodeDisplay = [r.prog_kode, r.kro_kode, r.ro_kode, r.akun_kode].filter(Boolean).join('.');
+
+    html += '<tr class="detail-parent' + (hasDetails ? ' has-details' : '') + '" ' +
+      (hasDetails ? 'onclick="toggleDetail(\'' + rid + '\')" style="cursor:pointer"' : '') +
+      ' id="pr-' + rid + '">';
+    html += '<td class="kode-cell" style="padding-left:' + (hasDetails ? '28px' : '12px') + '">' + kodeDisplay + '</td>';
+    html += '<td><div class="uraian-cell">' + esc(r.akun_nama) +
+      '<small>' + esc(r.kro_kode) + ' / ' + esc(r.ro_full) + ' — ' + esc((r.ro_nama || '').substring(0, 60)) + '</small></div></td>';
+    html += '<td>' + src + '</td>';
+    html += '<td class="mono" style="text-align:right">' + fmtM(r.pagu) + '</td>';
+    html += '<td class="mono" style="text-align:right;color:var(--teal)">' + fmtM(r.realisasi) + '</td>';
+    html += '<td class="mono" style="text-align:right;color:var(--amber)">' + fmtM(r.sisa) + '</td>';
+    html += '<td><span class="pct-badge ' + pc + '">' + r.persen.toFixed(2) + '%</span></td>';
+    html += '</tr>';
+
+    if (hasDetails) {
+      html += '<tr class="detail-group" id="dg-' + rid + '" style="display:none">';
+      html += '<td colspan="7" style="padding:0">';
+      html += '<table style="width:100%;border-collapse:collapse">';
+      r.details.forEach(function (d) {
+        var dpc  = pctClass(d.persen);
+        var dsisa = (d.sisa != null) ? d.sisa : ((d.pagu || 0) - (d.realisasi || 0));
+        html += '<tr class="detail-row">';
+        html += '<td style="width:28px"></td>';
+        html += '<td style="padding:6px 12px 6px 8px;font-size:11.5px;color:var(--t2)">' +
+          '<i class="fas fa-angle-right" style="font-size:9px;color:var(--t3);margin-right:6px"></i>' +
+          esc(d.nama) + '</td>';
+        html += '<td style="padding:6px 12px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--t2)">' + fmtM(d.pagu) + '</td>';
+        html += '<td style="padding:6px 12px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--teal)">' + fmtM(d.realisasi) + '</td>';
+        html += '<td style="padding:6px 12px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--amber)">' + fmtM(dsisa) + '</td>';
+        html += '<td style="padding:6px 12px"><span class="pct-badge ' + dpc + '" style="font-size:10px">' + d.persen.toFixed(2) + '%</span></td>';
+        html += '</tr>';
+      });
+      html += '</table></td></tr>';
+    }
+  });
+  tbody.innerHTML = html;
+  updateExpandArrows();
 
   renderPagin('keuPagin', total, APP.keuPage, APP.KEU_PP, 'goKeu');
 }
@@ -1908,6 +2122,7 @@ async function processUpload() {
       APP.meta     = result.meta;
       APP.data     = result.records;
       APP.filtered = result.records.slice();
+      APP.keuFiltered = result.records.slice();
       APP.kegPage  = 1;
       APP.keuPage  = 1;
 
@@ -1948,6 +2163,7 @@ async function processUpload() {
       }
 
       buildFilterOpts();
+      buildKeuFilterOpts();
       // Default view = bulan yang sesuai periode file
       var _MMAP = {januari:0,februari:1,maret:2,april:3,mei:4,juni:5,
                    juli:6,agustus:7,september:8,oktober:9,november:10,desember:11};
