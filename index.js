@@ -2622,11 +2622,9 @@ async function processUpload() {
       renderAll();
       if (bar) bar.style.width = '100%';
       closeModal();
-      var infoTahun = fileYear ? 'TA ' + upYear + ' (terbaca dari file)'
-                               : 'TA ' + upYear + ' (tahun pada file tidak terbaca — memakai tahun terpilih)';
       toast('success', 'Import Berhasil',
         result.records.length + ' akun berhasil diimpor dari ' +
-        APP.meta.satker + ' — ' + infoTahun);
+        APP.meta.satker + ' — TA ' + upYear + ' (sesuai header file)');
     } catch (err) {
       toast('error', 'Error Parsing', err.message);
       console.error(err);
