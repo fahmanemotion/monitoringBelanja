@@ -107,10 +107,15 @@ input,select{font-family:var(--font);outline:none}
   background-repeat:no-repeat;background-position:right 2px center}
 .ta-select option{color:var(--t1);font-weight:600}
 
-/* Tombol Perbandingan (toggle 3 tahun) */
-.compare-btn{border:1px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer}
+/* Tombol Perbandingan (toggle 3 tahun) — mandiri, tidak memakai .pill */
+.compare-btn{padding:3px 12px;border-radius:20px;font-size:11px;font-weight:600;
+  border:1px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer;
+  font-family:var(--font);transition:all .15s;white-space:nowrap}
+.compare-btn:hover{border-color:var(--teal,#0e9f6e);color:var(--teal,#0e9f6e)}
 .compare-btn.active{background:var(--teal,#0e9f6e);color:#fff;border-color:var(--teal,#0e9f6e)}
-.compare-btn.active:hover{background:var(--teal,#0e9f6e);border-color:var(--teal,#0e9f6e)}
+.compare-btn.active:hover{color:#fff}
+/* Saat mode perbandingan aktif, grup Bar/Line tetap berfungsi tapi diberi penanda */
+.pill-group.dimmed{opacity:.85}
 
 /* ── Content / Pages ── */
 .content{flex:1;padding:20px;overflow-y:auto}
@@ -182,7 +187,9 @@ input,select{font-family:var(--font);outline:none}
 .pill{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;
   border:1px solid var(--bd);color:var(--t3);background:transparent;
   cursor:pointer;transition:all .18s}
-.pill.active,.pill:hover{background:var(--blue);color:#fff;border-color:var(--blue)}
+/* Active = terisi penuh (biru). Hover hanya pada tombol non-aktif = highlight halus */
+.pill.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+.pill:not(.active):not(.compare-btn):hover{background:var(--blue-l);color:var(--blue);border-color:var(--blue)}
 .chart-legend{display:flex;flex-direction:column;gap:7px;padding:4px 16px 14px}
 .leg-row{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--t2)}
 .leg-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0}

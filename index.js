@@ -77,7 +77,11 @@ var APP = {
   viewMonth: -1,   // -1 = semua bulan, 0-11 = filter bulan tertentu
   // ── Multi-tahun ──
   viewYear: '',          // tahun anggaran yang sedang dipilih (string)
-  realisasiByYear: {},   // { '2026': [12 entri], '2025': [...], '2024': [...] }
+  dataByYear: {},        // { '2026': [records SAKTI], ... }
+  blokirByYear: {},      // { '2026': [blokir], ... }
+  targetByYear: {},      // { '2026': [12 detail target], ... }
+  realisasiByYear: {},   // { '2026': [12 entri realisasi], ... }
+  metaByYear: {},        // { '2026': { periode }, ... }
   compareYears: false,   // mode perbandingan 3 tahun di chart bulanan
   // Auth
   currentUser: null,  // { id, username, role } setelah login
@@ -556,9 +560,31 @@ async function loadAllFromSupabase() {
     var targetRows = results[3] || [];
     var realRows   = results[4] || [];
 
-    // ── Data SAKTI ──
-    APP.data = saktiRows.map(function(r) {
-      return {
+    // ── Metadata (satker/kode global; periode bisa per tahun) ──
+    var metaMap = {};
+    metaRows.forEach(function(r){ metaMap[r.key] = r.value; });
+    if (metaMap.satker) APP.meta.satker      = metaMap.satker;
+    if (metaMap.kode_satker) APP.meta.kode_satker = metaMap.kode_satker;
+    var globalTa = metaMap.ta || String(new Date().getFullYear());
+    var defaultYear = globalTa;
+
+    // metaByYear: periode per tahun (key 'periode_<ta>'), fallback ke 'periode' global
+    APP.metaByYear = {};
+    metaRows.forEach(function(r){
+      var mk = String(r.key || '');
+      var pm = mk.match(/^periode_(\d{4})$/);
+      if (pm) APP.metaByYear[pm[1]] = { periode: r.value || '' };
+    });
+    if (metaMap.periode && !APP.metaByYear[globalTa]) {
+      APP.metaByYear[globalTa] = { periode: metaMap.periode };
+    }
+
+    // ── Data SAKTI — dikelompokkan per Tahun ──
+    APP.dataByYear = {};
+    saktiRows.forEach(function(r) {
+      var yr = (r.ta != null && r.ta !== '') ? String(r.ta) : defaultYear;
+      if (!APP.dataByYear[yr]) APP.dataByYear[yr] = [];
+      APP.dataByYear[yr].push({
         id: r.id, kode: [r.prog_kode,r.kro_kode,r.ro_kode,r.akun_kode].filter(Boolean).join('.'),
         prog_kode: r.prog_kode, prog_nama: r.prog_nama,
         kro_kode:  r.kro_kode,  kro_nama:  r.kro_nama,
@@ -570,41 +596,35 @@ async function loadAllFromSupabase() {
         realisasi_bulan: parseFloat(r.realisasi_bulan)||0,
         sisa: parseFloat(r.sisa)||0, persen: parseFloat(r.persen)||0,
         details: Array.isArray(r.details) ? r.details : (r.details ? JSON.parse(r.details) : []),
+      });
+    });
+
+    // ── Blokir — dikelompokkan per Tahun ──
+    APP.blokirByYear = {};
+    blokirRows.forEach(function(r){
+      var yr = (r.ta != null && r.ta !== '') ? String(r.ta) : defaultYear;
+      if (!APP.blokirByYear[yr]) APP.blokirByYear[yr] = [];
+      APP.blokirByYear[yr].push({
+        id: r.id, uraian: r.uraian, nilai: parseFloat(r.nilai)||0, sumber: r.sumber, ta: yr
+      });
+    });
+
+    // ── Target Bulanan — dikelompokkan per Tahun ──
+    APP.targetByYear = {};
+    targetRows.forEach(function(r){
+      var i = r.bulan_idx;
+      if (i < 0 || i > 11) return;
+      var yr = (r.ta != null && r.ta !== '') ? String(r.ta) : defaultYear;
+      if (!APP.targetByYear[yr]) APP.targetByYear[yr] = emptyYearArr();
+      APP.targetByYear[yr][i] = {
+        r51: parseFloat(r.r51)||0, r52: parseFloat(r.r52)||0,
+        r53: parseFloat(r.r53)||0, total: parseFloat(r.total)||0,
+        src: r.src || 'upload'
       };
     });
 
-    // ── Metadata ──
-    var metaMap = {};
-    metaRows.forEach(function(r){ metaMap[r.key] = r.value; });
-    if (metaMap.satker) APP.meta.satker      = metaMap.satker;
-    if (metaMap.ta)     APP.meta.ta          = metaMap.ta;
-    if (metaMap.periode)APP.meta.periode     = metaMap.periode;
-    if (metaMap.kode_satker) APP.meta.kode_satker = metaMap.kode_satker;
-
-    // ── Blokir ──
-    APP.blokir = blokirRows.map(function(r){
-      return { id: r.id, uraian: r.uraian, nilai: parseFloat(r.nilai)||0, sumber: r.sumber };
-    });
-
-    // ── Target Bulanan ──
-    APP.targetBulanan  = new Array(12).fill(null);
-    APP._targetDetail  = new Array(12).fill(null);
-    targetRows.forEach(function(r){
-      var i = r.bulan_idx;
-      if (i >= 0 && i <= 11) {
-        APP.targetBulanan[i]  = parseFloat(r.total) || null;
-        APP._targetDetail[i]  = {
-          r51: parseFloat(r.r51)||0, r52: parseFloat(r.r52)||0,
-          r53: parseFloat(r.r53)||0, total: parseFloat(r.total)||0,
-          src: r.src || 'upload'
-        };
-      }
-    });
-
-    // ── Realisasi Bulanan (dikelompokkan per Tahun Anggaran) ──
-    var defaultYear = APP.meta.ta || String(new Date().getFullYear());
+    // ── Realisasi Bulanan — dikelompokkan per Tahun ──
     APP.realisasiByYear = {};
-    // Pastikan 3 tahun pada opsi selalu tersedia (meski kosong)
     yearOptions().forEach(function(y){ APP.realisasiByYear[y] = emptyYearArr(); });
     realRows.forEach(function(r){
       var i = r.bulan_idx;
@@ -617,12 +637,17 @@ async function loadAllFromSupabase() {
         tanggalUpdate: r.tanggal_update || '',
       };
     });
-    // Tahun aktif default = tahun berjalan; realisasiBulanan = referensi tahun aktif
-    populateYearSelectors();
-    APP.realisasiBulanan = getYearArr(APP.viewYear);
 
-    APP.filtered = APP.data.slice();
-    APP.keuFiltered = APP.data.slice();
+    // ── Tentukan tahun aktif & ikat slice ──
+    // Default: tahun yang ADA datanya (prioritas tahun berjalan), agar tidak tampil kosong
+    populateYearSelectors();
+    if (!APP.dataByYear[APP.viewYear]) {
+      var withData = yearOptions().filter(function(y){ return APP.dataByYear[y] && APP.dataByYear[y].length; });
+      if (withData.length) APP.viewYear = withData[0];
+      else if (APP.dataByYear[globalTa]) APP.viewYear = globalTa;
+    }
+    populateYearSelectors();
+    bindYearSlices(APP.viewYear);
 
     if (APP.data.length > 0) {
       buildFilterOpts();
@@ -701,22 +726,66 @@ function populateYearSelectors() {
   });
 }
 
-/** setViewYear — ganti tahun aktif, sinkronkan kontrol, render ulang tampilan */
+/** bindYearSlices — arahkan APP.data/blokir/target/realisasi ke tahun terpilih */
+function bindYearSlices(year) {
+  year = String(year);
+  APP.viewYear = year;
+  // SAKTI data
+  APP.data = APP.dataByYear[year] ? APP.dataByYear[year] : [];
+  APP.filtered = APP.data.slice();
+  APP.keuFiltered = APP.data.slice();
+  // Blokir
+  if (!APP.blokirByYear[year]) APP.blokirByYear[year] = [];
+  APP.blokir = APP.blokirByYear[year];
+  // Target bulanan
+  if (!APP.targetByYear[year]) APP.targetByYear[year] = emptyYearArr();
+  APP._targetDetail = APP.targetByYear[year];
+  APP.targetBulanan = APP._targetDetail.map(function(d){ return d ? d.total : null; });
+  // Realisasi bulanan
+  APP.realisasiBulanan = getYearArr(year);
+  // Meta periode untuk tahun ini
+  var m = APP.metaByYear[year] || {};
+  APP.meta.ta = year;
+  APP.meta.periode = m.periode || '';
+  // Reset paginasi
+  APP.kegPage = 1; APP.keuPage = 1;
+}
+
+/** setViewYear — ganti tahun aktif, rebind data, render ulang seluruh tampilan */
 function setViewYear(year) {
-  APP.viewYear = String(year);
-  // realisasiBulanan = referensi langsung ke array tahun terpilih (agar mutasi tersimpan)
-  APP.realisasiBulanan = getYearArr(APP.viewYear);
+  bindYearSlices(year);
   // Sinkronkan kedua dropdown
   ['taSelect','filterTahun'].forEach(function(id){
     var sel = document.getElementById(id);
     if (sel && sel.value !== APP.viewYear) sel.value = APP.viewYear;
   });
-  refreshYearViews();
+  // Bangun ulang opsi filter (data berubah) lalu render semuanya
+  if (APP.data.length > 0) {
+    buildFilterOpts();
+    buildKeuFilterOpts();
+    renderAll();
+  } else {
+    // Tahun ini belum punya data → kosongkan SEMUA tampilan agar tidak ada sisa tahun lain
+    showEmptyState();
+    renderKPIs();
+    renderBlokirTable();
+    renderTargetBulananForm();
+    renderRealisasiBulananTable();
+    // Hancurkan chart agar tidak menampilkan data tahun sebelumnya
+    if (CHARTS.bulanan) { CHARTS.bulanan.destroy(); CHARTS.bulanan = null; }
+    if (CHARTS.pie)     { CHARTS.pie.destroy();     CHARTS.pie     = null; }
+    // Kosongkan opsi filter Daftar Kegiatan
+    ['fProg','fKRO','fRO','fAkun','fDetail'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) while (el.options.length > 1) el.remove(1);
+    });
+  }
+  updateOrgLabel();
 }
 
-/** refreshYearViews — render ulang bagian yang bergantung pada tahun terpilih */
+/** refreshYearViews — alias render ulang (dipakai beberapa tempat) */
 function refreshYearViews() {
-  if (APP.data.length === 0) return;
+  if (APP.data.length === 0) { renderKPIs(); renderRealisasiBulananTable(); return; }
   renderKPIs();
   renderBulananChart();
   renderRealisasiBulananTable();
@@ -1518,7 +1587,7 @@ function renderBulananChart() {
             borderColor: gc, borderWidth: 1, padding: 10, cornerRadius: 6,
             callbacks: { label: function (c) {
               if (c.parsed.y === null) return '';
-              return ' ' + c.dataset.label + ': Rp ' + c.parsed.y.toLocaleString('id-ID') + ' Jt';
+              return ' ' + c.dataset.label + ': ' + fmtJutaAsM(c.parsed.y);
             } },
           },
         },
@@ -1600,7 +1669,8 @@ function renderBulananChart() {
           borderColor: gc, borderWidth: 1, padding: 10, cornerRadius: 6,
           callbacks: {
             label: function (c) {
-              return ' ' + c.dataset.label + ': Rp ' + c.parsed.y.toLocaleString('id-ID') + ' Jt';
+              if (c.parsed.y === null) return '';
+              return ' ' + c.dataset.label + ': ' + fmtJutaAsM(c.parsed.y);
             },
           },
         },
@@ -2069,23 +2139,123 @@ function renderPagin(containerId, total, page, perPage, fnName) {
  * col[28] = % penyerapan (0–1 fraction)
  * col[30] = Sisa Anggaran
  */
+/**
+ * extractFiscalYear — baca Tahun Anggaran LANGSUNG dari sel header sheet.
+ * Membaca dari objek sheet (sheet[cellRef].v), BUKAN dari hasil sheet_to_json,
+ * sehingga sel judul yang ter-merge ("LAPORAN ... TA 2026") tetap terbaca.
+ * Mengembalikan string tahun (mis. "2026") atau null bila tidak ditemukan.
+ */
+function extractFiscalYear(sheet) {
+  if (!sheet || !sheet['!ref']) return null;
+  var range = XLSX.utils.decode_range(sheet['!ref']);
+  var maxRow = Math.min(15, range.e.r);
+  var maxCol = range.e.c;
+  var headerText = '';
+  for (var r = 0; r <= maxRow; r++) {
+    for (var c = 0; c <= maxCol; c++) {
+      var ref  = XLSX.utils.encode_cell({ r: r, c: c });
+      var cell = sheet[ref];
+      if (cell && cell.v !== null && cell.v !== undefined && cell.v !== '') {
+        headerText += ' ' + String(cell.v);
+      }
+    }
+  }
+  headerText = headerText.replace(/\s+/g, ' ').trim();
+
+  var patterns = [
+    /\bT\.?\s?A\.?\s*[:\-]?\s*(20\d{2})\b/i,   // "TA 2026", "T.A. 2026", "TA.2026", "TA: 2026"
+    /Tahun\s*Anggaran\s*[:\-]?\s*(20\d{2})/i,   // "Tahun Anggaran 2026"
+    /Periode\s+[A-Za-z]+\s+(20\d{2})/i,         // "Periode Juni 2026"
+  ];
+  for (var pi = 0; pi < patterns.length; pi++) {
+    var m = headerText.match(patterns[pi]);
+    if (m) return m[1];
+  }
+  var any = headerText.match(/\b(20\d{2})\b/);   // cadangan: tahun 20xx pertama di header
+  return any ? any[1] : null;
+}
+
+/**
+ * validateUploadYear — validasi ketat tahun file vs tahun terpilih (fail-fast).
+ * Mengembalikan { ok:true, year } bila valid, atau { ok:false } (toast sudah tampil).
+ * @param {Object} wb     workbook XLSX
+ * @param {string} jenis  label jenis upload untuk pesan ("SAKTI", "Realisasi Bulanan", "Target Bulanan")
+ */
+function validateUploadYear(wb, jenis) {
+  jenis = jenis || 'data';
+  var selectedYear = String(APP.viewYear || '').trim();
+  if (!selectedYear) {
+    toast('error', 'Tahun Belum Dipilih',
+      'Pilih Tahun Anggaran di selektor terlebih dahulu sebelum mengupload file ' + jenis + '.');
+    return { ok: false };
+  }
+  var sheet = (wb && wb.Sheets && wb.SheetNames) ? wb.Sheets[wb.SheetNames[0]] : null;
+  var excelYear = extractFiscalYear(sheet);
+  console.warn('[SIPADU] Validasi tahun ' + jenis + ' — Excel:', excelYear || '(tidak ditemukan)',
+               '| Terpilih:', selectedYear);
+  if (!excelYear) {
+    toast('error', 'Tahun Tidak Ditemukan',
+      'Sistem tidak menemukan Tahun Anggaran pada header laporan Excel (' + jenis + '). ' +
+      'Pastikan file mengandung teks seperti "TA 2026" atau "Periode Juni 2026".');
+    return { ok: false };
+  }
+  if (excelYear !== selectedYear) {
+    toast('error', 'Upload Ditolak',
+      'File ' + jenis + ' ini Tahun Anggaran ' + excelYear + ', sedangkan selektor menunjuk TA ' +
+      selectedYear + '. Pilih TA ' + excelYear + ' di selektor lalu ulangi, atau gunakan file TA ' +
+      selectedYear + '. Upload dibatalkan agar data tidak tertimpa.');
+    console.warn('UPLOAD DITOLAK —', jenis, '| Excel:', excelYear, '| Terpilih:', selectedYear);
+    return { ok: false };
+  }
+  return { ok: true, year: excelYear };
+}
+
 function parseSaktiWorkbook(wb) {
   var ws = wb.Sheets[wb.SheetNames[0]];
   // Use raw:true so numbers stay numeric, defval null for empty
   var raw = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
 
-  // ── Extract metadata (rows 0–6)
-  var meta = { satker: '', ta: '', periode: '', kode_satker: '' };
-  for (var mi = 0; mi < Math.min(7, raw.length); mi++) {
-    var r0 = raw[mi][0] ? String(raw[mi][0]).trim() : '';
-    var taM = r0.match(/TA\s*(\d{4})/);
-    if (taM) meta.ta = taM[1];
-    if (r0.indexOf('Periode') !== -1) meta.periode = r0.replace(/^Periode\s*/i, '').trim();
-    if (r0.indexOf('Satuan Kerja') !== -1) {
-      meta.kode_satker = raw[mi][14] ? String(raw[mi][14]).trim() : '';
-      meta.satker      = raw[mi][15] ? String(raw[mi][15]).trim() : '';
+  // ── Extract metadata — judul sering ter-merge & bisa di kolom/baris mana saja ──
+  var meta = { satker: '', ta: '', periode: '', kode_satker: '', taDetected: false };
+
+  // Gabungkan SEMUA sel pada 15 baris teratas menjadi satu blob teks
+  var blobRows = Math.min(15, raw.length);
+  var blob = '';
+  for (var mi = 0; mi < blobRows; mi++) {
+    var row = raw[mi] || [];
+    for (var ci = 0; ci < row.length; ci++) {
+      var c = row[ci];
+      if (c !== null && c !== undefined && c !== '') blob += String(c) + ' ';
+    }
+    blob += ' ';
+    // Satuan Kerja / Kementerian (best effort)
+    if (row[0] && /Satuan\s*Kerja|Kementerian/i.test(String(row[0]))) {
+      if (!meta.kode_satker && row[14]) meta.kode_satker = String(row[14]).trim();
+      if (!meta.satker && row[15])      meta.satker      = String(row[15]).trim();
     }
   }
+  blob = blob.replace(/\s+/g, ' ').trim();
+
+  // Deteksi Tahun Anggaran — beberapa pola, di-anchor ke tahun 20xx agar tidak salah ambil kode
+  var taPatterns = [
+    /\bT\.?\s?A\.?\s*[:\-]?\s*(20\d{2})\b/i,          // "TA 2026", "T.A. 2026", "TA: 2026"
+    /Tahun\s*Anggaran\s*[:\-]?\s*(20\d{2})/i,          // "Tahun Anggaran 2026"
+    /Periode\s+[A-Za-z]+\s+(20\d{2})/i,                // "Periode Juni 2026"
+  ];
+  for (var pi = 0; pi < taPatterns.length; pi++) {
+    var m = blob.match(taPatterns[pi]);
+    if (m) { meta.ta = m[1]; meta.taDetected = true; break; }
+  }
+  // Last resort: tahun 20xx pertama yang muncul di blob header
+  if (!meta.taDetected) {
+    var anyYr = blob.match(/\b(20\d{2})\b/);
+    if (anyYr) { meta.ta = anyYr[1]; meta.taDetected = true; }
+  }
+
+  // Periode (untuk label), mis. "Periode Juni 2026"
+  var pM = blob.match(/Periode\s+([A-Za-z]+\s+20\d{2})/i);
+  if (pM) meta.periode = pM[1].trim();
+
   if (!meta.satker)  meta.satker  = 'Satuan Kerja';
   if (!meta.ta)      meta.ta      = new Date().getFullYear().toString();
   if (!meta.periode) meta.periode = '';
@@ -2270,7 +2440,11 @@ function parseSaktiWorkbook(wb) {
 
 /* ── Upload wiring ──────────────────────────────────────────── */
 function wireUpload() {
-  var openFn = function () { document.getElementById('uploadModal').classList.add('open'); };
+  var openFn = function () {
+    var hv = document.getElementById('uploadYearHintVal');
+    if (hv) hv.textContent = 'TA ' + (APP.viewYear || APP.meta.ta || new Date().getFullYear());
+    document.getElementById('uploadModal').classList.add('open');
+  };
   var ids = ['uploadBtn', 'setUploadBtn'];
   ids.forEach(function (id) {
     var el = document.getElementById(id);
@@ -2318,12 +2492,25 @@ function handleFile(files) {
   var reader = new FileReader();
   reader.onload = function (e) {
     try {
-      bar.style.width = '60%'; lbl.textContent = 'Mengurai struktur SAKTI...';
-      // Use raw:true to keep numbers numeric, not converted to strings
-      APP.rawWb = XLSX.read(e.target.result, { type: 'binary', raw: false });
-      bar.style.width = '100%'; lbl.textContent = 'Siap — klik Proses Data';
+      bar.style.width = '60%'; lbl.textContent = 'Memeriksa Tahun Anggaran...';
+      var wb = XLSX.read(e.target.result, { type: 'binary', raw: false });
+
+      // ── VALIDASI TAHUN (fail-fast) — workbook TIDAK disimpan bila tidak valid ──
+      var v = validateUploadYear(wb, 'SAKTI');
+      if (!v.ok) {
+        APP.rawWb = null;
+        document.getElementById('btnProcess').disabled = true;
+        if (up) up.style.display = 'none';
+        var fpEl = document.getElementById('filePreview'); if (fpEl) fpEl.style.display = 'none';
+        document.getElementById('fileInput').value = '';
+        return;
+      }
+
+      APP.rawWb = wb;
+      bar.style.width = '100%';
+      lbl.textContent = 'Siap — TA ' + v.year + ' cocok. Klik Proses Data';
       document.getElementById('btnProcess').disabled = false;
-      toast('info', 'File Siap', 'Klik "Proses Data" untuk mengimpor ke dashboard.');
+      toast('success', 'File Valid', 'Tahun file (TA ' + v.year + ') cocok dengan selektor. Klik "Proses Data".');
     } catch (err) {
       toast('error', 'Gagal Membaca', 'File tidak dapat dibaca: ' + err.message);
       if (up) up.style.display = 'none';
@@ -2334,6 +2521,11 @@ function handleFile(files) {
 
 async function processUpload() {
   if (!APP.rawWb) { toast('error', 'Tidak Ada File', 'Pilih file terlebih dahulu'); return; }
+
+  // ── Re-validasi tahun (fail-fast) — tahun bisa berubah setelah file dipilih ──
+  var vchk = validateUploadYear(APP.rawWb, 'SAKTI');
+  if (!vchk.ok) { return; }
+
   var lbl = document.getElementById('upbarLbl');
   var bar = document.getElementById('upbarFill');
   if (lbl) { lbl.textContent = 'Memproses data...'; bar.style.width = '50%'; }
@@ -2348,23 +2540,34 @@ async function processUpload() {
         return;
       }
       if (bar) bar.style.width = '90%';
-      APP.meta     = result.meta;
-      APP.data     = result.records;
-      APP.filtered = result.records.slice();
-      APP.keuFiltered = result.records.slice();
-      APP.kegPage  = 1;
-      APP.keuPage  = 1;
 
-      // Simpan ke Supabase
+      // Tahun sudah divalidasi cocok dengan selektor → simpan ke tahun tsb
+      var upYear = vchk.year;
+
+      // Peringatan ringan bila metadata di dalam body berbeda dari header (header = sumber utama)
+      if (result.meta.taDetected && String(result.meta.ta) !== upYear) {
+        console.warn('[SIPADU] Metadata body TA', result.meta.ta, '≠ header TA', upYear, '— memakai header.');
+      }
+
+      // Simpan ke peta per tahun
+      APP.dataByYear[upYear] = result.records.slice();
+      APP.metaByYear[upYear] = { periode: result.meta.periode || '' };
+      if (result.meta.satker) APP.meta.satker = result.meta.satker;
+      if (result.meta.kode_satker) APP.meta.kode_satker = result.meta.kode_satker;
+      // Tetap di tahun yang dipilih
+      APP.viewYear = upYear;
+      populateYearSelectors();
+      bindYearSlices(upYear);
+
+      // Simpan ke Supabase — hanya ganti data tahun ini, tahun lain tetap aman
       try {
-        await supaFetch('DELETE', 'sakti_data', { query: 'id=gt.0' });
-        await supaFetch('DELETE', 'metadata',   { query: 'key=neq.null' });
+        await supaFetch('DELETE', 'sakti_data', { query: 'ta=eq.' + encodeURIComponent(upYear) });
         var batchSize = 500;
         for (var bi = 0; bi < result.records.length; bi += batchSize) {
           var batch = result.records.slice(bi, bi + batchSize).map(function(r) {
             return {
               satker: result.meta.satker, kode_satker: result.meta.kode_satker,
-              ta: result.meta.ta, periode: result.meta.periode,
+              ta: upYear, periode: result.meta.periode,
               prog_kode: r.prog_kode, prog_nama: r.prog_nama,
               kro_kode: r.kro_kode, kro_nama: r.kro_nama,
               ro_kode: r.ro_kode, ro_full: r.ro_full, ro_nama: r.ro_nama,
@@ -2379,10 +2582,10 @@ async function processUpload() {
           await supaFetch('POST', 'sakti_data', { body: batch, returning: false });
         }
         var metaRows = [
-          { key: 'satker',      value: result.meta.satker      || '' },
-          { key: 'ta',          value: result.meta.ta          || '' },
-          { key: 'periode',     value: result.meta.periode     || '' },
-          { key: 'kode_satker', value: result.meta.kode_satker || '' },
+          { key: 'satker',              value: result.meta.satker      || '' },
+          { key: 'ta',                  value: upYear },
+          { key: 'kode_satker',         value: result.meta.kode_satker || '' },
+          { key: 'periode_' + upYear,   value: result.meta.periode     || '' },
         ];
         await supaFetch('POST', 'metadata', {
           query: 'on_conflict=key', body: metaRows, returning: false,
@@ -2393,9 +2596,6 @@ async function processUpload() {
 
       buildFilterOpts();
       buildKeuFilterOpts();
-      // Default view = bulan yang sesuai periode file
-      var _MMAP = {januari:0,februari:1,maret:2,april:3,mei:4,juni:5,
-                   juli:6,agustus:7,september:8,oktober:9,november:10,desember:11};
       APP.viewMonth = -1; // reset ke semua bulan saat upload baru
       var _fbEl = document.getElementById('filterBulan');
       if (_fbEl) _fbEl.value = '-1';
@@ -2403,9 +2603,11 @@ async function processUpload() {
       renderAll();
       if (bar) bar.style.width = '100%';
       closeModal();
+      var infoTahun = fileYear ? 'TA ' + upYear + ' (terbaca dari file)'
+                               : 'TA ' + upYear + ' (tahun pada file tidak terbaca — memakai tahun terpilih)';
       toast('success', 'Import Berhasil',
         result.records.length + ' akun berhasil diimpor dari ' +
-        APP.meta.satker + ' (TA ' + APP.meta.ta + ')');
+        APP.meta.satker + ' — ' + infoTahun);
     } catch (err) {
       toast('error', 'Error Parsing', err.message);
       console.error(err);
@@ -2434,21 +2636,23 @@ function updateOrgLabel() {
 
 /* ── Reset ──────────────────────────────────────────────────── */
 async function resetData() {
-  if (!confirm('Reset semua data SAKTI? (Data realisasi bulanan tidak akan dihapus)')) return;
+  var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
+  if (!confirm('Reset data SAKTI tahun ' + yr + '? Data tahun lain & realisasi bulanan tidak dihapus.')) return;
   try {
-    await supaFetch('DELETE', 'sakti_data', { query: 'id=gt.0' });
-    await supaFetch('DELETE', 'metadata',   { query: 'key=neq.null' });
-    await supaFetch('DELETE', 'blokir',     { query: 'id=gt.0' });
-    await supaFetch('DELETE', 'target_bulanan', { query: 'id=gt.0' });
+    await supaFetch('DELETE', 'sakti_data',     { query: 'ta=eq.' + encodeURIComponent(yr) });
+    await supaFetch('DELETE', 'blokir',         { query: 'ta=eq.' + encodeURIComponent(yr) });
+    await supaFetch('DELETE', 'target_bulanan', { query: 'ta=eq.' + encodeURIComponent(yr) });
+    await supaFetch('DELETE', 'metadata',       { query: 'key=eq.periode_' + encodeURIComponent(yr) });
     // Realisasi bulanan TIDAK dihapus (terkunci)
   } catch(e) {
     console.warn('resetData Supabase error:', e.message);
   }
-  APP.data = []; APP.filtered = []; APP.blokir = [];
-  APP.targetBulanan = [null,null,null,null,null,null,null,null,null,null,null,null];
-  APP._targetDetail = null;
-  APP.meta = { satker:'', ta:'', periode:'', kode_satker:'' };
-  APP.kegPage = 1; APP.keuPage = 1; APP.rawWb = null;
+  // Bersihkan slice tahun ini di memori
+  APP.dataByYear[yr]   = [];
+  APP.blokirByYear[yr] = [];
+  APP.targetByYear[yr] = emptyYearArr();
+  if (APP.metaByYear[yr]) APP.metaByYear[yr] = { periode: '' };
+  bindYearSlices(yr);
   if (CHARTS.bulanan) { CHARTS.bulanan.destroy(); CHARTS.bulanan = null; }
   if (CHARTS.pie)     { CHARTS.pie.destroy();     CHARTS.pie     = null; }
   ['fProg','fKRO','fRO','fAkun','fDetail'].forEach(function(id){
@@ -2457,8 +2661,9 @@ async function resetData() {
   });
   renderBlokirTable();
   renderTargetBulananForm();
+  renderRealisasiBulananTable();
   showEmptyState();
-  toast('info','Reset','Data telah dihapus. Upload file SAKTI untuk memuat data baru.');
+  toast('info','Reset','Data SAKTI tahun ' + yr + ' dihapus. Upload file SAKTI untuk memuat data baru.');
 }
 
 
@@ -2488,17 +2693,20 @@ async function addBlokir() {
   }
 
   var nilai = parseInt(nilaiStr, 10);
+  var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
   try {
     var rows = await supaFetch('POST', 'blokir',
-      { body: { uraian: uraian, nilai: nilai, sumber: sumber }, returning: true });
+      { body: { uraian: uraian, nilai: nilai, sumber: sumber, ta: yr }, returning: true });
     var saved = rows && rows[0];
     if (!saved) throw new Error('Tidak ada data dikembalikan');
-    APP.blokir.push({ id: saved.id, uraian: saved.uraian, nilai: parseFloat(saved.nilai), sumber: saved.sumber });
+    if (!APP.blokirByYear[yr]) APP.blokirByYear[yr] = [];
+    if (APP.blokir !== APP.blokirByYear[yr]) APP.blokir = APP.blokirByYear[yr];
+    APP.blokir.push({ id: saved.id, uraian: saved.uraian, nilai: parseFloat(saved.nilai), sumber: saved.sumber, ta: yr });
     document.getElementById('blokirUraian').value = '';
     document.getElementById('blokirNilai').value  = '';
     renderBlokirTable();
     renderKPIs();
-    toast('success', 'Blokir Ditambahkan', uraian + ' — ' + fmtM(nilai) + ' (' + sumber.toUpperCase() + ')');
+    toast('success', 'Blokir Ditambahkan', uraian + ' — ' + fmtM(nilai) + ' (' + sumber.toUpperCase() + ') • TA ' + yr);
   } catch(e) {
     toast('error', 'Gagal Simpan', 'Tidak dapat menyimpan ke database: ' + e.message);
   }
@@ -2524,15 +2732,17 @@ async function deleteBlokir(id) {
  * clearAllBlokir — hapus semua entry blokir
  */
 async function clearAllBlokir() {
+  var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
   var count = APP.blokir.length;
-  if (count === 0) { toast('info', 'Kosong', 'Tidak ada data blokir'); return; }
-  if (!confirm('Hapus semua ' + count + ' entry anggaran blokir?')) return;
+  if (count === 0) { toast('info', 'Kosong', 'Tidak ada data blokir tahun ' + yr); return; }
+  if (!confirm('Hapus semua ' + count + ' entry anggaran blokir tahun ' + yr + '?')) return;
   try {
-    await supaFetch('DELETE', 'blokir', { query: 'id=gt.0' });
-    APP.blokir = [];
+    await supaFetch('DELETE', 'blokir', { query: 'ta=eq.' + encodeURIComponent(yr) });
+    APP.blokirByYear[yr] = [];
+    APP.blokir = APP.blokirByYear[yr];
     renderBlokirTable();
     renderKPIs();
-    toast('info', 'Semua Dihapus', 'Seluruh anggaran blokir telah dihapus');
+    toast('info', 'Semua Dihapus', 'Seluruh anggaran blokir tahun ' + yr + ' telah dihapus');
   } catch(e) {
     toast('error', 'Gagal Hapus', e.message);
   }
@@ -2598,11 +2808,13 @@ var MONTHS_TARGET = ['Januari','Februari','Maret','April','Mei','Juni',
  */
 async function saveTargetBulanan() {
   try {
+    var yr = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
     var rows = [];
     for (var i = 0; i < 12; i++) {
       var d = APP._targetDetail && APP._targetDetail[i];
       if (!d) continue;
       rows.push({
+        ta:         yr,
         bulan_idx:  i,
         r51:        d.r51   || 0,
         r52:        d.r52   || 0,
@@ -2613,9 +2825,9 @@ async function saveTargetBulanan() {
       });
     }
     if (rows.length === 0) return;
-    // Upsert (insert or update) berdasarkan bulan_idx
+    // Upsert berdasarkan (ta, bulan_idx) — terpisah antar tahun
     await supaFetch('POST', 'target_bulanan', {
-      query: 'on_conflict=bulan_idx',
+      query: 'on_conflict=ta,bulan_idx',
       body: rows,
       returning: false,
     });
@@ -2675,6 +2887,20 @@ function handleTargetFile(files) {
 
       // raw:true → nilai angka tetap number, tidak diformat → konsisten di semua browser
       var wb  = XLSX.read(e2.target.result, { type:'binary', raw:true });
+
+      // ── VALIDASI TAHUN (fail-fast): tahun file harus = tahun terpilih ──
+      var vTgt = validateUploadYear(wb, 'Target Bulanan');
+      if (!vTgt.ok) {
+        if (bar) bar.style.width = '0';
+        if (lbl) lbl.textContent = 'Ditolak — tahun tidak sesuai';
+        var btbtn = document.getElementById('btnSimpanTarget');
+        if (btbtn) btbtn.disabled = true;
+        APP._targetParsed = null;
+        var tiEl = document.getElementById('targetFileInput');
+        if (tiEl) tiEl.value = '';
+        return;
+      }
+
       var ws  = wb.Sheets[wb.SheetNames[0]];
       // raw:true → number tetap number; string cell (prefix ') tetap string
       var raw = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:null });
@@ -3072,27 +3298,43 @@ function handleRealFile(files) {
       if (lbl) lbl.textContent = 'Mengurai data realisasi...';
 
       var wb  = XLSX.read(e.target.result, { type:'binary', raw:false });
+
+      // ── VALIDASI TAHUN (fail-fast): tahun file harus = tahun terpilih ──
+      var vReal = validateUploadYear(wb, 'Realisasi Bulanan');
+      if (!vReal.ok) {
+        if (bar) bar.style.width = '0';
+        if (lbl) lbl.textContent = 'Ditolak — tahun tidak sesuai';
+        var brbtn = document.getElementById('btnSimpanReal');
+        if (brbtn) brbtn.disabled = true;
+        APP.realParsed = null;
+        var riEl = document.getElementById('realFileInput');
+        if (riEl) riEl.value = '';
+        return;
+      }
+
       var ws  = wb.Sheets[wb.SheetNames[0]];
       var raw = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:null });
 
-      // ── Deteksi periode dari baris header (baris 0-6) ──
+      // ── Deteksi periode dari baris header (pindai SEMUA kolom, baris 0-9) ──
       var bulanIdx = null, ta = '';
       var MONTH_MAP_ID = {
         januari:0,februari:1,maret:2,april:3,mei:4,juni:5,
         juli:6,agustus:7,september:8,oktober:9,november:10,desember:11
       };
-      for (var ri = 0; ri < Math.min(7, raw.length); ri++) {
-        var c0 = raw[ri][0] ? String(raw[ri][0]).trim() : '';
-        // Cari "Periode Juni 2026" atau "Juni 2026"
-        var mPrd = c0.match(/periode\s+([a-zA-Z]+)\s*(\d{4})/i) ||
-                   c0.match(/([a-zA-Z]+)\s+(\d{4})/i);
-        if (mPrd) {
-          var bln = mPrd[1].toLowerCase();
-          ta = mPrd[2] || '';
-          if (MONTH_MAP_ID[bln] !== undefined) { bulanIdx = MONTH_MAP_ID[bln]; break; }
+      for (var ri = 0; ri < Math.min(10, raw.length); ri++) {
+        var rowA = raw[ri] || [];
+        var rowTxt = rowA.map(function(c){ return (c===null||c===undefined) ? '' : String(c); })
+                         .join(' ').replace(/\s+/g,' ').trim();
+        // "Periode Juni 2026"
+        var mPrd = rowTxt.match(/periode\s+([a-zA-Z]+)\s+(\d{4})/i);
+        if (mPrd && MONTH_MAP_ID[mPrd[1].toLowerCase()] !== undefined) {
+          bulanIdx = MONTH_MAP_ID[mPrd[1].toLowerCase()];
+          ta = mPrd[2] || ta;
         }
-        var taMch = c0.match(/TA\s*(\d{4})/i);
+        // Tahun dari judul: "... TA 2026"
+        var taMch = rowTxt.match(/\bTA\s*(\d{4})\b/i) || rowTxt.match(/Tahun\s*Anggaran\s*[:\-]?\s*(\d{4})/i);
         if (taMch) ta = taMch[1];
+        if (bulanIdx !== null && ta) break;
       }
 
       if (bulanIdx === null) {
@@ -3332,6 +3574,17 @@ function fmtM(n) {
   n = Math.round(n);
   // Format penuh dengan pemisah titik gaya Indonesia
   return 'Rp ' + n.toLocaleString('id-ID');
+}
+
+/**
+ * fmtJutaAsM — tampilkan nilai (dalam satuan Juta) sebagai Miliar dengan akhiran "M".
+ * Dipakai di tooltip chart agar konsisten dengan sumbu Y (yang juga memakai "M").
+ * Contoh: 24000 (Juta) → "Rp 24 M", 216 (Juta) → "Rp 0,22 M"
+ */
+function fmtJutaAsM(y) {
+  if (y === null || y === undefined) return '';
+  return 'Rp ' + (y / 1000).toLocaleString('id-ID',
+    { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' M';
 }
 
 function pctClass(p) {
