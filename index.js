@@ -1346,38 +1346,77 @@ function toCumulative(arr) {
 }
 
 /**
- * realPerBulanFromArr — konversi array realisasi 12 bulan (satu tahun) ke Rp Juta.
- * Mengembalikan null bila tahun tsb tidak punya data upload sama sekali.
+ * isRunningYear — true bila tahun = tahun berjalan (sekarang)
  */
-function realPerBulanFromArr(arr) {
-  if (!arr) return null;
-  var hasUpload = arr.some(function(v){ return v !== null && v !== undefined; });
-  if (!hasUpload) return null;
-  var lastIdx = -1;
-  arr.forEach(function(v, j){ if (v !== null && v !== undefined) lastIdx = j; });
-  return arr.map(function(v, i){
-    if (v !== null && v !== undefined) return Math.round(v.nilai / 1e6);
+function isRunningYear(year) {
+  return String(year) === String(new Date().getFullYear());
+}
+
+/**
+ * perMonthRealYear — realisasi PER BULAN (Rp Juta) untuk satu tahun.
+ * - Tahun berjalan : nilai tersimpan = "Realisasi Periode Ini" (sudah per bulan).
+ *                    Tanpa upload → fallback distribusi data SAKTI (khusus tahun SAKTI).
+ * - Tahun lampau   : nilai tersimpan = "Realisasi s.d. Periode" (kumulatif),
+ *                    sehingga per bulan = selisih antar kumulatif.
+ */
+function perMonthRealYear(year, curMonth, totalRl, totalRi) {
+  var arr = APP.realisasiByYear[year];
+  var filled = arr ? arr.map(function(v){ return (v != null) ? v.nilai : null; })
+                   : emptyYearArr();
+  var hasData = filled.some(function(v){ return v != null; });
+  var lastIdx = -1; filled.forEach(function(v, j){ if (v != null) lastIdx = j; });
+
+  if (isRunningYear(year)) {
+    if (hasData) {
+      return filled.map(function(v, i){
+        if (v != null) return Math.round(v / 1e6);
+        if (i > lastIdx) return null;
+        return 0;
+      });
+    }
+    // Fallback distribusi SAKTI hanya untuk tahun data SAKTI utama
+    if (String(year) === String(APP.meta.ta)) {
+      return Array.from({length: 12}, function (_, i) {
+        if (i < curMonth && curMonth > 0) return Math.round(totalRl / curMonth / 1e6);
+        if (i === curMonth)               return Math.round(totalRi / 1e6);
+        return null;
+      });
+    }
+    return emptyYearArr().map(function(){ return null; });
+  }
+
+  // Tahun lampau: nilai kumulatif → per bulan = selisih
+  if (!hasData) return emptyYearArr().map(function(){ return null; });
+  var prevCum = 0;
+  return filled.map(function(v, i){
     if (i > lastIdx) return null;
-    return 0;
+    if (v == null) return 0;                 // kumulatif tidak berubah bulan ini
+    var inc = v - prevCum; prevCum = v;
+    return Math.round(inc / 1e6);
   });
 }
 
 /**
- * realPerBulanForYear — realisasi per bulan (Rp Juta) untuk tahun tertentu.
- * Tahun SAKTI utama yang belum punya upload bulanan → fallback distribusi data SAKTI.
- * Tahun lain tanpa data → array null (kosong di chart).
+ * cumRealYear — realisasi KUMULATIF (Rp Juta) untuk satu tahun.
+ * - Tahun lampau : nilai tersimpan sudah kumulatif → pakai langsung (carry-forward).
+ * - Tahun berjalan: kumulatif dari penjumlahan per bulan.
  */
-function realPerBulanForYear(year, curMonth, totalRl, totalRi) {
-  var r = realPerBulanFromArr(APP.realisasiByYear[year]);
-  if (r) return r;
-  if (String(year) === String(APP.meta.ta)) {
-    return Array.from({length: 12}, function (_, i) {
-      if (i < curMonth && curMonth > 0) return Math.round(totalRl / curMonth / 1e6);
-      if (i === curMonth)               return Math.round(totalRi / 1e6);
-      return null;
+function cumRealYear(year, curMonth, totalRl, totalRi) {
+  var arr = APP.realisasiByYear[year];
+  var filled = arr ? arr.map(function(v){ return (v != null) ? v.nilai : null; })
+                   : emptyYearArr();
+  var hasData = filled.some(function(v){ return v != null; });
+
+  if (!isRunningYear(year) && hasData) {
+    var lastIdx = -1; filled.forEach(function(v, j){ if (v != null) lastIdx = j; });
+    var last = 0;
+    return filled.map(function(v, i){
+      if (i > lastIdx) return null;
+      if (v != null) last = v;
+      return Math.round(last / 1e6);
     });
   }
-  return emptyYearArr().map(function(){ return null; });
+  return toCumulative(perMonthRealYear(year, curMonth, totalRl, totalRi));
 }
 
 function renderBulananChart() {
@@ -1399,10 +1438,11 @@ function renderBulananChart() {
   }
 
   var months    = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  var yrSel     = APP.viewYear || APP.meta.ta || String(new Date().getFullYear());
   var tgtPerBln = getTargetPerBulan(totalPagu);
-  var realPerBln = getRealPerBulan(totalRl, totalRi, curMonth);
+  var realPerBln = perMonthRealYear(yrSel, curMonth, totalRl, totalRi);
   var tgtKumul  = toCumulative(tgtPerBln);
-  var realKumul = toCumulative(realPerBln);
+  var realKumul = cumRealYear(yrSel, curMonth, totalRl, totalRi);
 
   var isBar     = APP.chartType === 'bar';
   var dataTarget = isBar ? tgtPerBln  : tgtKumul;
@@ -1437,11 +1477,11 @@ function renderBulananChart() {
       { bg: 'rgba(227,160,8,.85)',  border: '#e3a008' }, // tahun -2
     ];
     var cmpDatasets = years.map(function (y, idx) {
-      var per = realPerBulanForYear(y, curMonth, totalRl, totalRi);
+      var per = perMonthRealYear(y, curMonth, totalRl, totalRi);
       var col = palette[idx % palette.length];
       return {
         label: 'Realisasi ' + y,
-        data: isBar ? per : toCumulative(per),
+        data: isBar ? per : cumRealYear(y, curMonth, totalRl, totalRi),
         backgroundColor: isBar ? col.bg : (idx === 0 ? 'rgba(14,159,110,.06)' : 'transparent'),
         borderColor: col.border,
         borderWidth: isBar ? 0 : 2.5,
@@ -3068,34 +3108,51 @@ function handleRealFile(files) {
         }
       }
 
-      // ── Ambil realisasi PERIODE INI (col[23]) dari baris JUMLAH SELURUHNYA ──
-      // Bukan s.d. periode (col[24]) — kita inginkan nilai per bulan berjalan
+      // ── Pilih kolom realisasi sesuai TAHUN yang dipilih di dropdown TA ──
+      // Tahun berjalan  → col[23] "Realisasi Periode Ini" (nilai per bulan)
+      // Tahun lampau    → col[25] "Realisasi s.d. Periode" (nilai kumulatif)
+      var yrTarget   = APP.viewYear || ta || String(new Date().getFullYear());
+      var pakaiKumul = !isRunningYear(yrTarget);
+      var colReal    = pakaiKumul ? 25 : 23;
+      var modeLabel  = pakaiKumul ? 's.d. Periode (kumulatif)' : 'Periode Ini';
+
       var totalReal = 0;
       for (var rj = 0; rj < Math.min(15, raw.length); rj++) {
         var c0j = raw[rj][0] ? String(raw[rj][0]).trim() : '';
         if (c0j.toUpperCase().indexOf('JUMLAH SELURUHNYA') !== -1) {
-          // col[23] = Realisasi Periode Ini (bulan berjalan saja)
-          totalReal = parseFloat(raw[rj][23]) || 0;
+          totalReal = parseFloat(raw[rj][colReal]) || 0;
           break;
         }
       }
 
       if (totalReal === 0) {
-        // Fallback: jumlahkan col[23] semua baris akun (col[7] = 6 digit)
+        // Fallback: jumlahkan kolom yang sesuai dari semua baris akun (col[7] = 6 digit)
         for (var rk = 9; rk < raw.length; rk++) {
           var c7 = raw[rk][7] ? String(raw[rk][7]).trim().replace(/\.0$/, '') : '';
           if (/^\d{6}$/.test(c7)) {
             var pagu = parseFloat(raw[rk][16]) || 0;
             if (pagu > 0) {
-              totalReal += parseFloat(raw[rk][23]) || 0;
+              totalReal += parseFloat(raw[rk][colReal]) || 0;
             }
           }
         }
       }
 
+      // Peringatan ringan bila tahun pada file berbeda dari tahun yang dipilih
+      var mismatch = (ta && String(ta) !== String(yrTarget));
+
       if (bar) bar.style.width = '100%';
-      if (lbl) lbl.textContent = 'Selesai — realisasi ' + MONTHS_ID[bulanIdx] + ': ' + fmtM(totalReal);
-      if (prd) prd.textContent = '→ ' + MONTHS_ID[bulanIdx] + ' ' + ta;
+      if (lbl) lbl.textContent = 'Selesai — ' + MONTHS_ID[bulanIdx] + ' ' + yrTarget +
+        ' (' + modeLabel + '): ' + fmtM(totalReal);
+      if (prd) prd.textContent = '→ ' + MONTHS_ID[bulanIdx] + ' ' + yrTarget +
+        ' • kolom: ' + modeLabel +
+        (mismatch ? ' • ⚠ file tertera TA ' + ta + ', disimpan ke TA ' + yrTarget : '');
+
+      if (mismatch) {
+        toast('info','Perhatikan Tahun',
+          'File terdeteksi TA ' + ta + ', namun akan disimpan ke TA ' + yrTarget +
+          ' (sesuai pilihan dropdown). Pastikan tahun sudah benar.');
+      }
 
       APP.realParsed = {
         bulanIdx:    bulanIdx,
