@@ -750,6 +750,7 @@ function showEmptyState() {
   document.getElementById('keuBody').innerHTML =
     '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--t3)">' +
     'Belum ada data.</td></tr>';
+  renderKeuKPIs();   // tampilkan 3 kartu (Rp 0) walau belum ada data
 }
 
 /* ── Full render ────────────────────────────────────────────── */
@@ -2108,8 +2109,49 @@ function sortKeu(col) {
   renderKeuTable();
 }
 
+/* ── Keuangan: 3 Kartu Ringkasan (Total Pagu / Realisasi / Sisa) ──
+ * Menjumlahkan kolom PAGU, Realisasi, dan Sisa dari APP.keuFiltered —
+ * yaitu data yang sedang tampil di tabel (otomatis mengikuti filter & pencarian).
+ */
+function renderKeuKPIs() {
+  var el = document.getElementById('keuKpiRow');
+  if (!el) return;
+  var rows = (APP.data && APP.data.length) ? (APP.keuFiltered || []) : [];
+  var pagu = 0, real = 0, sisa = 0;
+  rows.forEach(function (r) {
+    pagu += (+r.pagu || 0);
+    real += (+r.realisasi || 0);
+    sisa += (+r.sisa || 0);
+  });
+  var pctReal = pagu > 0 ? (real / pagu * 100) : 0;
+  var pctSisa = pagu > 0 ? (sisa / pagu * 100) : 0;
+  var nb = rows.length;
+  var terfilter = (APP.data && nb !== APP.data.length) ? ' (terfilter)' : '';
+
+  el.innerHTML =
+    kpiHtml('k-ang', 'b', 'file-invoice-dollar',
+      'Total Pagu',
+      fmtM(pagu),
+      nb + ' baris' + terfilter,
+      100, 'b',
+      'Σ kolom PAGU', nb + ' baris') +
+    kpiHtml('k-real', 't', 'chart-line',
+      'Realisasi',
+      fmtM(real),
+      pctReal.toFixed(2) + '% dari pagu',
+      Math.min(pctReal, 100), 't',
+      'Realisasi / Pagu', pctReal.toFixed(2) + '%') +
+    kpiHtml('k-sisa', 'a', 'wallet',
+      'Sisa Anggaran',
+      fmtM(sisa),
+      pctSisa.toFixed(2) + '% belum terserap',
+      Math.min(pctSisa, 100), 'a',
+      'Sisa / Pagu', pctSisa.toFixed(2) + '%');
+}
+
 /* ── Keuangan Table ─────────────────────────────────────────── */
 function renderKeuTable() {
+  renderKeuKPIs();                       // selalu perbarui 3 kartu ringkasan (ikut filter)
   if (APP.data.length === 0) { return; }
   var total = APP.keuFiltered.length;
   var from  = (APP.keuPage - 1) * APP.KEU_PP;

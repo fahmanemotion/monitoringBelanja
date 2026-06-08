@@ -141,6 +141,8 @@ input,select{font-family:var(--font);outline:none}
 
 /* ── KPI Cards ── */
 .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.kpi-row.k3{grid-template-columns:repeat(3,1fr)}
+@media(max-width:680px){.kpi-row.k3{grid-template-columns:1fr}}
 .kpi{background:var(--card);border:1px solid var(--bd);border-radius:var(--r3);
   padding:18px;position:relative;overflow:hidden;box-shadow:var(--s1);
   transition:transform .18s,box-shadow .18s;animation:fu .35s ease both;
