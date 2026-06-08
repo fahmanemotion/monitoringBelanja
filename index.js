@@ -48,6 +48,24 @@ async function supaFetch(method, table, opts) {
   return text ? JSON.parse(text) : null;
 }
 
+/**
+ * supaFetchAll — GET SEMUA baris sebuah tabel dengan PAGINATION.
+ * Supabase/PostgREST membatasi ±1000 baris per request; tanpa ini, baris ke-1001+
+ * akan hilang saat load sehingga total (mis. pagu) salah/terpotong. Helper ini
+ * mengambil per halaman (limit+offset) sampai habis, lalu menggabungkannya.
+ */
+async function supaFetchAll(table, baseQuery) {
+  var all = [];
+  var pageSize = 1000;
+  for (var offset = 0; ; offset += pageSize) {
+    var q = baseQuery + '&limit=' + pageSize + '&offset=' + offset;
+    var rows = await supaFetch('GET', table, { query: q, returning: true }) || [];
+    all = all.concat(rows);
+    if (rows.length < pageSize) break;   // halaman terakhir (kurang dari satu halaman penuh)
+  }
+  return all;
+}
+
 /* ── State ─────────────────────────────────────────────────── */
 var APP = {
   theme:    'light',
@@ -563,13 +581,13 @@ function showLoadingState() {
  */
 async function loadAllFromSupabase() {
   try {
-    // Muat semua tabel secara paralel
+    // Muat semua tabel secara paralel — pakai PAGINATION agar tidak terpotong di 1000 baris
     var results = await Promise.all([
-      supaFetch('GET', 'sakti_data',        { query: 'select=*&order=id', returning: true }),
-      supaFetch('GET', 'metadata',          { query: 'select=*', returning: true }),
-      supaFetch('GET', 'blokir',            { query: 'select=*&order=id', returning: true }),
-      supaFetch('GET', 'target_bulanan',    { query: 'select=*&order=bulan_idx', returning: true }),
-      supaFetch('GET', 'realisasi_bulanan', { query: 'select=*&order=bulan_idx', returning: true }),
+      supaFetchAll('sakti_data',        'select=*&order=id'),
+      supaFetch('GET', 'metadata',      { query: 'select=*', returning: true }),  // selalu kecil
+      supaFetchAll('blokir',            'select=*&order=id'),
+      supaFetchAll('target_bulanan',    'select=*&order=bulan_idx'),
+      supaFetchAll('realisasi_bulanan', 'select=*&order=bulan_idx'),
     ]);
 
     var saktiRows  = results[0] || [];
@@ -577,6 +595,9 @@ async function loadAllFromSupabase() {
     var blokirRows = results[2] || [];
     var targetRows = results[3] || [];
     var realRows   = results[4] || [];
+    console.log('[SIPADU] Baris terambil dari DB → sakti_data=' + saktiRows.length +
+      ', blokir=' + blokirRows.length + ', target=' + targetRows.length +
+      ', realisasi=' + realRows.length);
 
     // ── Metadata (satker/kode global; periode bisa per tahun) ──
     var metaMap = {};
@@ -2643,8 +2664,8 @@ async function processUpload() {
       // 1) Catat id baris LAMA tahun ini  2) INSERT data baru  3) baru hapus baris lama by id.
       // Bila gagal di tengah, data lama TIDAK terhapus → tidak ada kehilangan data.
       try {
-        var oldRows = await supaFetch('GET', 'sakti_data',
-          { query: 'select=id&ta=eq.' + encodeURIComponent(upYear) + '&limit=100000', returning: true }) || [];
+        var oldRows = await supaFetchAll('sakti_data',
+          'select=id&ta=eq.' + encodeURIComponent(upYear) + '&order=id');
         var oldIds = oldRows.map(function(o){ return o.id; });
 
         // 2) INSERT data baru DULU (data lama masih ada sebagai cadangan)
