@@ -599,14 +599,14 @@ async function loadAllFromSupabase() {
       APP.metaByYear[globalTa] = { periode: metaMap.periode };
     }
 
-    // ── Data SAKTI — dikelompokkan per Tahun (KETAT berdasarkan kolom `ta`) ──
-    // Hindari melempar baris tak-bertahun ke "tahun upload terakhir" yang bisa
-    // mengontaminasi data tahun lain. Cadangan: turunkan tahun dari `periode`.
+    // ── Data SAKTI — dikelompokkan per Tahun (KETAT: HANYA baris ber-`ta` valid) ──
+    // Baris tanpa `ta` (orphan) TIDAK dimasukkan ke tahun mana pun — ini mencegah
+    // baris lama/sisa mengontaminasi & menggelembungkan total tahun (mis. 26 M → 358 M).
     APP.dataByYear = {};
-    var _orphanTa = 0;
+    var _orphanTa = 0, _orphanPagu = 0;
     saktiRows.forEach(function(r) {
-      if (r.ta == null || String(r.ta).trim() === '') _orphanTa++;
-      var yr = saktiRowYear(r, defaultYear);
+      var yr = saktiRowYear(r);                 // '' bila tak ber-ta valid
+      if (!yr) { _orphanTa++; _orphanPagu += parseFloat(r.pagu) || 0; return; }   // SKIP orphan
       if (!APP.dataByYear[yr]) APP.dataByYear[yr] = [];
       APP.dataByYear[yr].push({
         id: r.id, kode: [r.prog_kode,r.kro_kode,r.ro_kode,r.akun_kode].filter(Boolean).join('.'),
@@ -623,12 +623,16 @@ async function loadAllFromSupabase() {
         details: Array.isArray(r.details) ? r.details : (r.details ? JSON.parse(r.details) : []),
       });
     });
-    // Diagnostik: tampilkan jumlah baris per tahun (buka Console F12 bila data terlihat aneh)
+    // Diagnostik (buka Console F12): jumlah baris & total pagu per tahun
     console.log('[SIPADU] sakti_data per tahun:',
-      Object.keys(APP.dataByYear).sort().map(function(y){ return y + '=' + APP.dataByYear[y].length; }).join('  '));
+      Object.keys(APP.dataByYear).sort().map(function(y){
+        var sum = APP.dataByYear[y].reduce(function(a,x){ return a + (x.pagu||0); }, 0);
+        return y + '=' + APP.dataByYear[y].length + ' baris (pagu ' + Math.round(sum/1e6) + ' Jt)';
+      }).join('  ') || '(kosong)');
     if (_orphanTa > 0) {
-      console.warn('[SIPADU] PERHATIAN: ' + _orphanTa + ' baris sakti_data TANPA kolom `ta` ' +
-        '(berisiko tercampur antar tahun). Disarankan upload ulang tahun terkait atau set kolom `ta` di database.');
+      console.warn('[SIPADU] DIKECUALIKAN: ' + _orphanTa + ' baris sakti_data TANPA kolom `ta` ' +
+        '(total pagu ~' + Math.round(_orphanPagu/1e6) + ' Jt) — baris ini TIDAK ditampilkan agar tidak ' +
+        'mengontaminasi tahun lain. Hapus/benahi via SQL bila perlu (lihat panduan).');
     }
 
     // ── Blokir — dikelompokkan per Tahun ──
@@ -2670,6 +2674,13 @@ async function processUpload() {
           await supaFetch('DELETE', 'sakti_data', { query: 'id=in.(' + chunk.join(',') + ')' });
         }
 
+        // 3b) Bersihkan baris ORPHAN (tanpa `ta`) yang periodenya menunjuk tahun ini.
+        //     Baris seperti ini-lah yang dulu "menggelembungkan" total saat reload.
+        try {
+          await supaFetch('DELETE', 'sakti_data',
+            { query: 'ta=is.null&periode=like.*' + encodeURIComponent(upYear) + '*' });
+        } catch (eo) { console.warn('[SIPADU] Pembersihan orphan dilewati:', eo.message); }
+
         // 4) Metadata (anti-duplikat). Periode disimpan PER-TAHUN. Satker/kode hanya
         //    ditulis saat bootstrap (belum pernah diatur) agar edit manual tidak tertimpa.
         var metaRows = [
@@ -3826,16 +3837,14 @@ function kodeToJenis(k) {
 }
 
 /**
- * saktiRowYear — tentukan Tahun Anggaran sebuah baris sakti_data SECARA KETAT.
- * Prioritas: kolom `ta` → turunkan dari `periode` (mis. "Mei 2024" → 2024)
- * → terakhir baru defaultYear. Mencegah baris tak-bertahun "menempel" ke
- * tahun upload terakhir (kontaminasi antar tahun).
+ * saktiRowYear — Tahun Anggaran sebuah baris sakti_data SECARA KETAT.
+ * HANYA dari kolom `ta`. Baris tanpa `ta` valid dianggap orphan → kembalikan ''
+ * (oleh pemanggil akan DIKECUALIKAN, bukan dilempar ke tahun lain). Ini mencegah
+ * baris lama/sisa mengontaminasi & menggelembungkan total suatu tahun.
  */
-function saktiRowYear(r, defaultYear) {
+function saktiRowYear(r) {
   if (r && r.ta != null && String(r.ta).trim() !== '') return String(r.ta).trim();
-  var pm = String((r && r.periode) || '').match(/(20\d{2})/);
-  if (pm) return pm[1];
-  return defaultYear;
+  return '';
 }
 
 /**
