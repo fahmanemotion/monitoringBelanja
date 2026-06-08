@@ -660,12 +660,17 @@ async function loadAllFromSupabase() {
     });
 
     // ── Tentukan tahun aktif & ikat slice ──
-    // Default: tahun yang ADA datanya (prioritas tahun berjalan), agar tidak tampil kosong
+    // Default: tahun yang ADA datanya (prioritas tahun berjalan), agar tidak tampil kosong.
+    // Cari di SELURUH tahun yang punya data SAKTI, bukan hanya jendela 3-tahun.
     populateYearSelectors();
-    if (!APP.dataByYear[APP.viewYear]) {
-      var withData = yearOptions().filter(function(y){ return APP.dataByYear[y] && APP.dataByYear[y].length; });
-      if (withData.length) APP.viewYear = withData[0];
-      else if (APP.dataByYear[globalTa]) APP.viewYear = globalTa;
+    if (!APP.dataByYear[APP.viewYear] || !APP.dataByYear[APP.viewYear].length) {
+      var yearsWithData = Object.keys(APP.dataByYear)
+        .filter(function (y) { return APP.dataByYear[y] && APP.dataByYear[y].length; })
+        .sort(function (a, b) { return Number(b) - Number(a); });   // terbaru dulu
+      var cy = String(new Date().getFullYear());
+      if (yearsWithData.indexOf(cy) !== -1) APP.viewYear = cy;        // utamakan tahun berjalan bila ada data
+      else if (yearsWithData.length)        APP.viewYear = yearsWithData[0];
+      else if (APP.dataByYear[globalTa] && APP.dataByYear[globalTa].length) APP.viewYear = globalTa;
     }
     populateYearSelectors();
     bindYearSlices(APP.viewYear);
@@ -2608,8 +2613,12 @@ async function processUpload() {
       // Simpan ke peta per tahun (tampilan optimistis; akan diselaraskan bila simpan gagal)
       APP.dataByYear[upYear] = result.records.slice();
       APP.metaByYear[upYear] = { periode: result.meta.periode || '' };
-      if (result.meta.satker) APP.meta.satker = result.meta.satker;
-      if (result.meta.kode_satker) APP.meta.kode_satker = result.meta.kode_satker;
+      // Nama & kode satker: HANYA isi dari file bila belum pernah diatur (bootstrap).
+      // Bila admin sudah mengubahnya manual, jangan ditimpa oleh upload berikutnya.
+      var hadSatker = !!(APP.meta.satker && APP.meta.satker.trim());
+      var hadKode   = !!(APP.meta.kode_satker && String(APP.meta.kode_satker).trim());
+      if (!hadSatker && result.meta.satker)      APP.meta.satker      = result.meta.satker;
+      if (!hadKode   && result.meta.kode_satker) APP.meta.kode_satker = result.meta.kode_satker;
       // Tetap di tahun yang dipilih
       APP.viewYear = upYear;
       populateYearSelectors();
@@ -2628,7 +2637,7 @@ async function processUpload() {
         for (var bi = 0; bi < result.records.length; bi += batchSize) {
           var batch = result.records.slice(bi, bi + batchSize).map(function(r) {
             return {
-              satker: result.meta.satker, kode_satker: result.meta.kode_satker,
+              satker: APP.meta.satker, kode_satker: APP.meta.kode_satker,
               ta: upYear, periode: result.meta.periode,
               prog_kode: r.prog_kode, prog_nama: r.prog_nama,
               kro_kode: r.kro_kode, kro_nama: r.kro_nama,
@@ -2650,16 +2659,15 @@ async function processUpload() {
           await supaFetch('DELETE', 'sakti_data', { query: 'id=in.(' + chunk.join(',') + ')' });
         }
 
-        // 4) Metadata (per-tahun untuk periode; global untuk satker/kode)
+        // 4) Metadata (anti-duplikat). Periode disimpan PER-TAHUN. Satker/kode hanya
+        //    ditulis saat bootstrap (belum pernah diatur) agar edit manual tidak tertimpa.
         var metaRows = [
-          { key: 'satker',              value: result.meta.satker      || '' },
-          { key: 'ta',                  value: upYear },
-          { key: 'kode_satker',         value: result.meta.kode_satker || '' },
-          { key: 'periode_' + upYear,   value: result.meta.periode     || '' },
+          { key: 'ta',                value: upYear },
+          { key: 'periode_' + upYear, value: result.meta.periode || '' },
         ];
-        await supaFetch('POST', 'metadata', {
-          query: 'on_conflict=key', body: metaRows, returning: false,
-        });
+        if (!hadSatker && APP.meta.satker)      metaRows.push({ key: 'satker',      value: APP.meta.satker });
+        if (!hadKode   && APP.meta.kode_satker) metaRows.push({ key: 'kode_satker', value: APP.meta.kode_satker });
+        await setMetaMany(metaRows);
       } catch(saveErr) {
         // Gagal simpan → data LAMA tidak terhapus. Selaraskan memori dengan DB agar jujur.
         if (bar) bar.style.width = '0';
@@ -2708,7 +2716,26 @@ function updateOrgLabel() {
   if (taSel && taSel.value !== APP.viewYear && APP.viewYear) taSel.value = APP.viewYear;
 }
 
-/* ── Identitas Satker (nama + logo) ─────────────────────────── */
+/* ── Identitas Satker (nama + kode + logo) ──────────────────── */
+/**
+ * setMeta — tulis 1 key metadata secara ANTI-DUPLIKAT (delete-then-insert).
+ * Dipakai agar nilai (nama satker, logo, dll) tersimpan sebagai SATU baris,
+ * apa pun kondisi unique-constraint tabel metadata — sehingga nilai terbaru
+ * selalu yang dimuat, tidak pernah "balik ke default" karena baris ganda.
+ */
+async function setMeta(key, value) {
+  await supaFetch('DELETE', 'metadata', { query: 'key=eq.' + encodeURIComponent(key) });
+  await supaFetch('POST', 'metadata', { body: { key: key, value: value }, returning: false });
+}
+/** setMetaMany — beberapa key sekaligus, tetap anti-duplikat */
+async function setMetaMany(pairs) {
+  if (!pairs || !pairs.length) return;
+  var keys = pairs.map(function (p) { return p.key; });
+  await supaFetch('DELETE', 'metadata',
+    { query: 'key=in.(' + keys.map(encodeURIComponent).join(',') + ')' });
+  await supaFetch('POST', 'metadata', { body: pairs, returning: false });
+}
+
 /** applyLogo — tampilkan/sembunyikan logo di topnav & preview sesuai APP.meta.logo */
 function applyLogo() {
   var dataUrl = APP.meta.logo || '';
@@ -2726,31 +2753,47 @@ function applyLogo() {
   }
 }
 
-/** fillSatkerIdentity — isi field nama satker & preview logo (dipanggil saat halaman dibuka) */
+/** fillSatkerIdentity — isi field nama & kode satker + preview logo (saat halaman dibuka) */
 function fillSatkerIdentity() {
   var inp = document.getElementById('satkerNameInput');
   if (inp) inp.value = APP.meta.satker || '';
+  var kinp = document.getElementById('satkerKodeInput');
+  if (kinp) kinp.value = APP.meta.kode_satker || '';
   applyLogo();
 }
 
-/** saveSatkerName — simpan nama satker ke metadata (key 'satker') */
+/** saveSatkerName — simpan nama satker (anti-duplikat) */
 async function saveSatkerName() {
   if (blockIfViewOnly()) return;
   var inp = document.getElementById('satkerNameInput');
   var nama = inp ? inp.value.trim() : '';
   if (!nama) { toast('error', 'Nama Kosong', 'Masukkan nama satuan kerja terlebih dahulu.'); return; }
   try {
-    await supaFetch('POST', 'metadata', { query: 'on_conflict=key',
-      body: { key: 'satker', value: nama }, returning: false });
+    await setMeta('satker', nama);
     APP.meta.satker = nama;
     updateOrgLabel();
-    toast('success', 'Nama Disimpan', 'Nama satker diperbarui menjadi: ' + nama);
+    toast('success', 'Nama Disimpan', 'Nama satker tersimpan permanen: ' + nama);
   } catch (e) {
     toast('error', 'Gagal Simpan', e.message);
   }
 }
 
-/** handleLogoUpload — baca gambar → base64 → simpan ke metadata (key 'logo') */
+/** saveSatkerKode — simpan kode satker (anti-duplikat) */
+async function saveSatkerKode() {
+  if (blockIfViewOnly()) return;
+  var inp = document.getElementById('satkerKodeInput');
+  var kode = inp ? inp.value.trim() : '';
+  try {
+    await setMeta('kode_satker', kode);
+    APP.meta.kode_satker = kode;
+    updateOrgLabel();
+    toast('success', 'Kode Disimpan', 'Kode satker tersimpan permanen: ' + (kode || '(kosong)'));
+  } catch (e) {
+    toast('error', 'Gagal Simpan', e.message);
+  }
+}
+
+/** handleLogoUpload — baca gambar → base64 → simpan (anti-duplikat) */
 function handleLogoUpload(files) {
   if (blockIfViewOnly()) return;
   if (!files || !files[0]) return;
@@ -2761,11 +2804,10 @@ function handleLogoUpload(files) {
   reader.onload = async function (e) {
     var dataUrl = String(e.target.result || '');
     try {
-      await supaFetch('POST', 'metadata', { query: 'on_conflict=key',
-        body: { key: 'logo', value: dataUrl }, returning: false });
+      await setMeta('logo', dataUrl);
       APP.meta.logo = dataUrl;
       applyLogo();
-      toast('success', 'Logo Tersimpan', 'Logo satker diperbarui dan tampil di header.');
+      toast('success', 'Logo Tersimpan', 'Logo satker tersimpan permanen dan tampil di header.');
     } catch (err) {
       toast('error', 'Gagal Simpan Logo', err.message);
     }
@@ -2778,8 +2820,7 @@ async function removeSatkerLogo() {
   if (blockIfViewOnly()) return;
   if (!confirm('Hapus logo satker?')) return;
   try {
-    await supaFetch('POST', 'metadata', { query: 'on_conflict=key',
-      body: { key: 'logo', value: '' }, returning: false });
+    await setMeta('logo', '');
     APP.meta.logo = '';
     applyLogo();
     var fi = document.getElementById('logoFileInput'); if (fi) fi.value = '';
@@ -3309,12 +3350,9 @@ function renderTargetBulananForm() {
   if (!tbody) return;
 
   var detail = APP._targetDetail;
-  if (!detail) {
-    try {
-      var ds = localStorage.getItem('sipadu_target_detail_v3');
-      if (ds) { detail = JSON.parse(ds); APP._targetDetail = detail; }
-    } catch(e) {}
-  }
+  // Catatan: target sudah per-tahun di Supabase (APP.targetByYear) dan diikat oleh
+  // bindYearSlices(). Tidak ada lagi fallback localStorage agar tidak terjadi
+  // pencampuran data antar tahun.
 
   var totalAll = 0, count = 0;
 
