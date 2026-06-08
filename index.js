@@ -599,10 +599,14 @@ async function loadAllFromSupabase() {
       APP.metaByYear[globalTa] = { periode: metaMap.periode };
     }
 
-    // ── Data SAKTI — dikelompokkan per Tahun ──
+    // ── Data SAKTI — dikelompokkan per Tahun (KETAT berdasarkan kolom `ta`) ──
+    // Hindari melempar baris tak-bertahun ke "tahun upload terakhir" yang bisa
+    // mengontaminasi data tahun lain. Cadangan: turunkan tahun dari `periode`.
     APP.dataByYear = {};
+    var _orphanTa = 0;
     saktiRows.forEach(function(r) {
-      var yr = (r.ta != null && r.ta !== '') ? String(r.ta) : defaultYear;
+      if (r.ta == null || String(r.ta).trim() === '') _orphanTa++;
+      var yr = saktiRowYear(r, defaultYear);
       if (!APP.dataByYear[yr]) APP.dataByYear[yr] = [];
       APP.dataByYear[yr].push({
         id: r.id, kode: [r.prog_kode,r.kro_kode,r.ro_kode,r.akun_kode].filter(Boolean).join('.'),
@@ -619,6 +623,13 @@ async function loadAllFromSupabase() {
         details: Array.isArray(r.details) ? r.details : (r.details ? JSON.parse(r.details) : []),
       });
     });
+    // Diagnostik: tampilkan jumlah baris per tahun (buka Console F12 bila data terlihat aneh)
+    console.log('[SIPADU] sakti_data per tahun:',
+      Object.keys(APP.dataByYear).sort().map(function(y){ return y + '=' + APP.dataByYear[y].length; }).join('  '));
+    if (_orphanTa > 0) {
+      console.warn('[SIPADU] PERHATIAN: ' + _orphanTa + ' baris sakti_data TANPA kolom `ta` ' +
+        '(berisiko tercampur antar tahun). Disarankan upload ulang tahun terkait atau set kolom `ta` di database.');
+    }
 
     // ── Blokir — dikelompokkan per Tahun ──
     APP.blokirByYear = {};
@@ -3812,6 +3823,19 @@ function kodeToJenis(k) {
   if (k.charAt(0) === '5' && k.charAt(1) === '1') return 'pegawai';
   if (k.charAt(0) === '5' && k.charAt(1) === '3') return 'modal';
   return 'barang';
+}
+
+/**
+ * saktiRowYear — tentukan Tahun Anggaran sebuah baris sakti_data SECARA KETAT.
+ * Prioritas: kolom `ta` → turunkan dari `periode` (mis. "Mei 2024" → 2024)
+ * → terakhir baru defaultYear. Mencegah baris tak-bertahun "menempel" ke
+ * tahun upload terakhir (kontaminasi antar tahun).
+ */
+function saktiRowYear(r, defaultYear) {
+  if (r && r.ta != null && String(r.ta).trim() !== '') return String(r.ta).trim();
+  var pm = String((r && r.periode) || '').match(/(20\d{2})/);
+  if (pm) return pm[1];
+  return defaultYear;
 }
 
 /**
