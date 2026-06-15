@@ -1271,7 +1271,6 @@ function computeSummary(src) {
   if (vm >= 0) {
     // Realisasi bulan terpilih — prioritas: upload FA Detail, fallback data SAKTI
     var rbArr = APP.realisasiBulanan;
-    var rbItem = rbArr[vm];
     // Hitung curMonth dari meta
     var MMAP = {januari:0,februari:1,maret:2,april:3,mei:4,juni:5,
                 juli:6,agustus:7,september:8,oktober:9,november:10,desember:11};
@@ -1280,24 +1279,28 @@ function computeSummary(src) {
       var pStr = APP.meta.periode.toLowerCase().split(' ')[0];
       if (MMAP[pStr] !== undefined) curM = MMAP[pStr];
     }
-    if (rbItem !== null && rbItem !== undefined) {
-      // Data dari upload FA Detail bulan ini
-      real = rbItem.nilai;
-      ri   = rbItem.nilai;
-      rl   = 0;
-    } else if (vm === curM) {
-      // Bulan berjalan dari data SAKTI utama
-      real = rows.reduce(function(s,r){ return s + (r.realisasi_bulan||0); }, 0);
-      ri   = real; rl = 0;
-    } else if (vm < curM) {
-      // Estimasi bulan sebelumnya (distribusi merata dari realisasi_lalu)
-      var totalRl = rows.reduce(function(s,r){ return s + (r.realisasi_lalu||0); }, 0);
-      real = curM > 0 ? Math.round(totalRl / curM) : 0;
-      ri = real; rl = 0;
-    } else {
-      // Bulan mendatang — realisasi 0
-      real = 0; ri = 0; rl = 0;
+    // Realisasi tiap bulan m (prioritas: upload FA Detail; fallback data SAKTI)
+    function monthReal(m) {
+      var item = rbArr[m];
+      if (item !== null && item !== undefined) return item.nilai || 0;
+      if (m === curM) {
+        // Bulan berjalan dari data SAKTI utama
+        return rows.reduce(function (s, r) { return s + (r.realisasi_bulan || 0); }, 0);
+      }
+      if (m < curM) {
+        // Estimasi bulan sebelumnya (distribusi merata dari realisasi s.d. lalu)
+        var totalRl = rows.reduce(function (s, r) { return s + (r.realisasi_lalu || 0); }, 0);
+        return curM > 0 ? Math.round(totalRl / curM) : 0;
+      }
+      return 0; // bulan mendatang
     }
+    // SISA dihitung dari realisasi KUMULATIF s.d. bulan terpilih (bukan satu bulan),
+    // agar konsisten dengan tampilan Gabungan: pagu = realisasi + sisa.
+    var cumReal = 0;
+    for (var m = 0; m <= vm; m++) cumReal += monthReal(m);
+    ri   = monthReal(vm);   // realisasi bulan terpilih
+    real = cumReal;         // total realisasi s.d. bulan terpilih
+    rl   = cumReal - ri;    // realisasi s.d. bulan sebelumnya
   }
 
   // Hitung total blokir sesuai filter sumber
