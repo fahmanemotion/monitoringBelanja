@@ -487,30 +487,33 @@ test('computeSummary — sisa per bulan = pagu − realisasi KUMULATIF (regresi 
   S.APP.viewMonth = -1; S.APP.data = []; S.APP.blokir = [];
 });
 
-test('keuRealOf — filter bulan keuangan memilih snapshot realisasi yang benar', () => {
-  var r = { pagu: 1000, realisasi: 300, realisasi_lalu: 250, realisasi_bulan: 50, sisa: 700 };
+test('keuRealOf — filter bulan keuangan (s.d. bulan) konsisten dengan dashboard', () => {
+  S.APP.meta.periode = 'Juni 2026';   // curM = 5 (Juni)
+  S.APP.realisasiBulanan = [null,null,null,null,null,null,null,null,null,null,null,null];
+  S.APP.data = [{ pagu: 1000, realisasi: 300, realisasi_lalu: 250, realisasi_bulan: 50, sisa: 700 }];
+  var r = S.APP.data[0];
 
-  S.APP.keuBulan = '';            // s.d. terkini (kumulatif)
+  // s.d. Juni (terkini) → nilai penuh
+  S.APP.keuBulan = '';
   var a = S.keuRealOf(r);
-  eq(a.real, 300, "mode '' → realisasi kumulatif 300");
-  eq(a.sisa, 700, "mode '' → sisa = r.sisa 700");
-  eq(a.ratio, 1, "mode '' → ratio 1");
+  eq(a.real, 300, "s.d. Juni → realisasi penuh 300");
+  eq(a.sisa, 700, "s.d. Juni → sisa 700");
+  eq(a.ratio, 1, "s.d. Juni → ratio 1");
 
-  S.APP.keuBulan = 'prev';        // s.d. bulan lalu
-  var b = S.keuRealOf(r);
-  eq(b.real, 250, "prev → realisasi_lalu 250");
-  eq(b.sisa, 750, "prev → sisa = pagu − 250 = 750");
-  ok(Math.abs(b.ratio - 250 / 300) < 1e-9, "prev → ratio 250/300 (untuk skala detail)");
+  // s.d. Maret (index 2) → kumulatif 150 (estimasi merata, SAMA dgn computeSummary dashboard)
+  S.APP.keuBulan = '2';
+  var m = S.keuRealOf(r);
+  eq(m.real, 150, "s.d. Maret → 150 (estimasi merata seperti dashboard)");
+  eq(m.sisa, 850, "s.d. Maret → sisa = 1000 − 150 = 850");
+  eq(m.real + m.sisa, 1000, "invarian pagu = real + sisa");
 
-  S.APP.keuBulan = 'this';        // bulan berjalan saja
-  var c = S.keuRealOf(r);
-  eq(c.real, 50, "this → realisasi_bulan 50");
-  eq(c.sisa, 950, "this → sisa = pagu − 50 = 950");
+  // s.d. Januari (index 0) → 1 bulan × 50 = 50
+  S.APP.keuBulan = '0';
+  var j = S.keuRealOf(r);
+  eq(j.real, 50, "s.d. Januari → 50");
+  ok(j.real < m.real, "Januari < Maret (makin awal makin kecil)");
 
-  eq(b.real + b.sisa, 1000, "prev: invarian pagu = real + sisa");
-  eq(c.real + c.sisa, 1000, "this: invarian pagu = real + sisa");
-
-  S.APP.keuBulan = ''; // reset
+  S.APP.keuBulan = ''; S.APP.data = [];
 });
 
 run();

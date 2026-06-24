@@ -2069,10 +2069,12 @@ function wireKeuFilters() {
 }
 
 /* ── Filter Bulan (Modul Keuangan) ──────────────────────────────
- * Data per-baris hanya menyimpan 3 titik realisasi: kumulatif s.d. periode
- * berjalan (realisasi), kumulatif s.d. bulan sebelumnya (realisasi_lalu),
- * dan tambahan bulan berjalan (realisasi_bulan). Filter ini memilih salah
- * satunya agar user bisa melihat data bulanan secara akurat.
+ * Seperti dashboard: user memilih bulan dari Januari s.d. bulan berjalan,
+ * lalu tabel/KPI menampilkan realisasi KUMULATIF s.d. bulan itu.
+ * Data per-baris tidak punya rincian 12 bulan, sehingga realisasi s.d. bulan
+ * terpilih dihitung dari rasio agregat bulanan (logika SAMA dengan dashboard:
+ * pakai FA Detail bulanan bila ada, selain itu estimasi merata) lalu
+ * diterapkan proporsional ke tiap baris — Σ baris = nilai agregat dashboard.
  */
 function keuCurMonthIdx() {
   var MMAP = { januari:0,februari:1,maret:2,april:3,mei:4,juni:5,
@@ -2084,31 +2086,67 @@ function keuCurMonthIdx() {
   return 5; // default Juni (konsisten dengan computeSummary)
 }
 
+/** Rasio realisasi kumulatif s.d. bulan M dibanding total periode berjalan. */
+function keuMonthRatio(M) {
+  var curM = keuCurMonthIdx();
+  if (M >= curM) return 1;             // s.d. bulan berjalan = penuh
+  if (M < 0) return 0;
+  var rbArr = APP.realisasiBulanan || [];
+  var rows  = APP.data || [];
+  var totalRl  = rows.reduce(function (s, r) { return s + (r.realisasi_lalu || 0); }, 0);
+  var totalCur = rows.reduce(function (s, r) { return s + (r.realisasi || 0); }, 0);
+  function monthReal(m) {
+    var item = rbArr[m];
+    if (item !== null && item !== undefined) return item.nilai || 0; // FA Detail bulanan
+    if (m === curM) return rows.reduce(function (s, r) { return s + (r.realisasi_bulan || 0); }, 0);
+    if (m < curM)   return curM > 0 ? Math.round(totalRl / curM) : 0; // estimasi merata
+    return 0;
+  }
+  var cum = 0;
+  for (var m = 0; m <= M; m++) cum += monthReal(m);
+  return totalCur > 0 ? (cum / totalCur) : 0;
+}
+
+/** Rasio aktif (dengan cache) sesuai bulan terpilih. */
+var _keuRatioCache = { key: null, val: 1 };
+function keuActiveRatio() {
+  var curM = keuCurMonthIdx();
+  var M = (APP.keuBulan === '' || APP.keuBulan == null) ? curM : +APP.keuBulan;
+  var key = M + '|' + ((APP.data || []).length) + '|' + ((APP.meta && APP.meta.periode) || '');
+  if (_keuRatioCache.key === key) return _keuRatioCache.val;
+  var v = keuMonthRatio(M);
+  _keuRatioCache = { key: key, val: v };
+  return v;
+}
+
 /** Realisasi/sisa/persen satu baris sesuai bulan terpilih (+ rasio utk detail). */
 function keuRealOf(r) {
-  var mode = APP.keuBulan || '';
-  var real = mode === 'prev' ? (r.realisasi_lalu || 0)
-           : mode === 'this' ? (r.realisasi_bulan || 0)
-           : (r.realisasi || 0);
+  var curM = keuCurMonthIdx();
+  var M = (APP.keuBulan === '' || APP.keuBulan == null) ? curM : +APP.keuBulan;
   var pagu = r.pagu || 0;
-  var sisa = (mode === '') ? r.sisa : (pagu - real);
+  if (M >= curM) {   // s.d. bulan berjalan → nilai penuh apa adanya
+    var pen = pagu > 0 ? ((r.realisasi || 0) / pagu * 100) : 0;
+    return { real: r.realisasi || 0, sisa: r.sisa, persen: pen, ratio: 1 };
+  }
+  var ratio = keuActiveRatio();
+  var real  = Math.round((r.realisasi || 0) * ratio);
+  var sisa  = pagu - real;
   var persen = pagu > 0 ? (real / pagu * 100) : 0;
-  // Rasio untuk menskalakan sub-baris detail agar induk = Σ detail tetap konsisten
-  var ratio = (mode === '') ? 1 : ((r.realisasi > 0) ? (real / r.realisasi) : 0);
   return { real: real, sisa: sisa, persen: persen, ratio: ratio };
 }
 
-/** Isi opsi dropdown Bulan dengan nama bulan nyata sesuai periode data. */
+/** Isi opsi dropdown Bulan: Januari s.d. bulan berjalan (seperti dashboard). */
 function populateKeuBulan() {
   var el = document.getElementById('kfBulan');
   if (!el) return;
   var cur = keuCurMonthIdx();
-  var opts = ['<option value="">s.d. ' + MONTHS_ID[cur] + ' (kumulatif)</option>'];
-  if (cur > 0) opts.push('<option value="prev">s.d. ' + MONTHS_ID[cur - 1] + '</option>');
-  opts.push('<option value="this">' + MONTHS_ID[cur] + ' (bulan ini)</option>');
+  var opts = [];
+  for (var m = 0; m <= cur; m++) {
+    var lab = 's.d. ' + MONTHS_ID[m] + (m === cur ? ' (terkini)' : '');
+    opts.push('<option value="' + (m === cur ? '' : m) + '">' + lab + '</option>');
+  }
   var prev = el.value;
   el.innerHTML = opts.join('');
-  // pertahankan pilihan bila masih valid
   var ok = Array.prototype.some.call(el.options, function (o) { return o.value === prev; });
   el.value = ok ? prev : '';
   APP.keuBulan = el.value;
@@ -2218,14 +2256,12 @@ function renderKeuTable() {
   var to    = Math.min(from + APP.KEU_PP, total);
 
   document.getElementById('keuBadge').textContent = total + ' Baris';
-  // Label kolom Realisasi mengikuti bulan terpilih
+  // Label kolom Realisasi mengikuti bulan terpilih (s.d. bulan X)
   var rth = document.getElementById('keuRealTh');
   if (rth) {
-    var cur = keuCurMonthIdx();
-    var lab = APP.keuBulan === 'prev' ? ('Realisasi s.d. ' + MONTHS_ID[cur > 0 ? cur - 1 : cur])
-            : APP.keuBulan === 'this' ? ('Realisasi ' + MONTHS_ID[cur])
-            : ('Realisasi s.d. ' + MONTHS_ID[cur]);
-    rth.innerHTML = lab + ' <i class="fas fa-sort"></i>';
+    var curM = keuCurMonthIdx();
+    var selM = (APP.keuBulan === '' || APP.keuBulan == null) ? curM : +APP.keuBulan;
+    rth.innerHTML = 'Realisasi s.d. ' + MONTHS_ID[selM] + ' <i class="fas fa-sort"></i>';
   }
   document.getElementById('keuInfo').textContent = total === 0
     ? 'Tidak ada data ditemukan'
@@ -2268,9 +2304,10 @@ function renderKeuTable() {
       html += '<tr class="detail-group" id="dg-' + rid + '" style="display:none">';
       html += '<td colspan="7" style="padding:0">';
       html += '<table style="width:100%;border-collapse:collapse">';
+      var keuFull = (APP.keuBulan === '' || APP.keuBulan == null || +APP.keuBulan >= keuCurMonthIdx());
       r.details.forEach(function (d) {
-        var dreal = (APP.keuBulan === '') ? (d.realisasi || 0) : Math.round((d.realisasi || 0) * rv.ratio);
-        var dsisa = (APP.keuBulan === '')
+        var dreal = keuFull ? (d.realisasi || 0) : Math.round((d.realisasi || 0) * rv.ratio);
+        var dsisa = keuFull
           ? ((d.sisa != null) ? d.sisa : ((d.pagu || 0) - (d.realisasi || 0)))
           : ((d.pagu || 0) - dreal);
         var dpersen = (d.pagu > 0) ? (dreal / d.pagu * 100) : 0;
