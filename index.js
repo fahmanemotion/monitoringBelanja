@@ -75,6 +75,7 @@ var APP = {
   data:     [],          // parsed akun records
   filtered: [],          // after filter+search (Daftar Kegiatan / dashboard)
   keuFiltered: [],       // after filter+search (Modul Keuangan)
+  keuBulan: '',          // '' = s.d. terkini, 'prev' = s.d. bulan lalu, 'this' = bulan ini
   sort:     { col: null, dir: 'asc' },
   keuSort:  { col: null, dir: 'asc' },
   kegPage:  1,
@@ -1942,6 +1943,7 @@ function buildKeuFilterOpts() {
     return [k, k + ' — ' + (progMap[k] || '')];
   });
   fillSelect('kfProg', progPairs);
+  populateKeuBulan();
   rebuildKeuCascade();
 }
 
@@ -2055,12 +2057,61 @@ function wireKeuFilters() {
   // Filter Status Realisasi (khas Modul Keuangan)
   var elStatus = document.getElementById('kfStatus');
   if (elStatus) elStatus.addEventListener('change', applyKeuFilters);
+  // Filter Bulan (periode realisasi yang ditampilkan)
+  var elBulan = document.getElementById('kfBulan');
+  if (elBulan) elBulan.addEventListener('change', applyKeuFilters);
   // Filter Jenis Belanja (independen, paling bawah setelah Sumber Dana)
   var elJenis = document.getElementById('kfJenis');
   if (elJenis) elJenis.addEventListener('change', applyKeuFilters);
   // Pencarian
   var keuq = document.getElementById('keuQ');
   if (keuq) keuq.addEventListener('input', applyKeuFilters);
+}
+
+/* ── Filter Bulan (Modul Keuangan) ──────────────────────────────
+ * Data per-baris hanya menyimpan 3 titik realisasi: kumulatif s.d. periode
+ * berjalan (realisasi), kumulatif s.d. bulan sebelumnya (realisasi_lalu),
+ * dan tambahan bulan berjalan (realisasi_bulan). Filter ini memilih salah
+ * satunya agar user bisa melihat data bulanan secara akurat.
+ */
+function keuCurMonthIdx() {
+  var MMAP = { januari:0,februari:1,maret:2,april:3,mei:4,juni:5,
+               juli:6,agustus:7,september:8,oktober:9,november:10,desember:11 };
+  if (APP.meta && APP.meta.periode) {
+    var p = String(APP.meta.periode).toLowerCase().split(' ')[0];
+    if (MMAP[p] !== undefined) return MMAP[p];
+  }
+  return 5; // default Juni (konsisten dengan computeSummary)
+}
+
+/** Realisasi/sisa/persen satu baris sesuai bulan terpilih (+ rasio utk detail). */
+function keuRealOf(r) {
+  var mode = APP.keuBulan || '';
+  var real = mode === 'prev' ? (r.realisasi_lalu || 0)
+           : mode === 'this' ? (r.realisasi_bulan || 0)
+           : (r.realisasi || 0);
+  var pagu = r.pagu || 0;
+  var sisa = (mode === '') ? r.sisa : (pagu - real);
+  var persen = pagu > 0 ? (real / pagu * 100) : 0;
+  // Rasio untuk menskalakan sub-baris detail agar induk = Σ detail tetap konsisten
+  var ratio = (mode === '') ? 1 : ((r.realisasi > 0) ? (real / r.realisasi) : 0);
+  return { real: real, sisa: sisa, persen: persen, ratio: ratio };
+}
+
+/** Isi opsi dropdown Bulan dengan nama bulan nyata sesuai periode data. */
+function populateKeuBulan() {
+  var el = document.getElementById('kfBulan');
+  if (!el) return;
+  var cur = keuCurMonthIdx();
+  var opts = ['<option value="">s.d. ' + MONTHS_ID[cur] + ' (kumulatif)</option>'];
+  if (cur > 0) opts.push('<option value="prev">s.d. ' + MONTHS_ID[cur - 1] + '</option>');
+  opts.push('<option value="this">' + MONTHS_ID[cur] + ' (bulan ini)</option>');
+  var prev = el.value;
+  el.innerHTML = opts.join('');
+  // pertahankan pilihan bila masih valid
+  var ok = Array.prototype.some.call(el.options, function (o) { return o.value === prev; });
+  el.value = ok ? prev : '';
+  APP.keuBulan = el.value;
 }
 
 function applyKeuFilters() {
@@ -2072,6 +2123,7 @@ function applyKeuFilters() {
   var sumber = (document.getElementById('kfSumber') || {}).value || '';
   var jenis  = (document.getElementById('kfJenis')  || {}).value || '';
   var status = (document.getElementById('kfStatus') || {}).value || 'gabungan';
+  APP.keuBulan = (document.getElementById('kfBulan') || {}).value || '';
   var q      = ((document.getElementById('keuQ')    || {}).value || '').toLowerCase().trim();
 
   APP.keuFiltered = APP.data.filter(function (r) {
@@ -2104,8 +2156,11 @@ function sortKeu(col) {
   else { APP.keuSort.col = col; APP.keuSort.dir = 'asc'; }
   APP.keuFiltered.sort(function (a, b) {
     var va, vb;
-    if (col === 'uraian') { va = a.akun_nama; vb = b.akun_nama; }
-    else                  { va = a[col];      vb = b[col];      }
+    if (col === 'uraian')         { va = a.akun_nama;        vb = b.akun_nama; }
+    else if (col === 'realisasi') { va = keuRealOf(a).real;  vb = keuRealOf(b).real; }
+    else if (col === 'sisa')      { va = keuRealOf(a).sisa;  vb = keuRealOf(b).sisa; }
+    else if (col === 'persen')    { va = keuRealOf(a).persen;vb = keuRealOf(b).persen; }
+    else                          { va = a[col];             vb = b[col]; }
     var cmp = typeof va === 'number' ? va - vb : String(va || '').localeCompare(String(vb || ''));
     return APP.keuSort.dir === 'asc' ? cmp : -cmp;
   });
@@ -2122,9 +2177,10 @@ function renderKeuKPIs() {
   var rows = (APP.data && APP.data.length) ? (APP.keuFiltered || []) : [];
   var pagu = 0, real = 0, sisa = 0;
   rows.forEach(function (r) {
+    var v = keuRealOf(r);
     pagu += (+r.pagu || 0);
-    real += (+r.realisasi || 0);
-    sisa += (+r.sisa || 0);
+    real += v.real;
+    sisa += v.sisa;
   });
   var pctReal = pagu > 0 ? (real / pagu * 100) : 0;
   var pctSisa = pagu > 0 ? (sisa / pagu * 100) : 0;
@@ -2162,6 +2218,15 @@ function renderKeuTable() {
   var to    = Math.min(from + APP.KEU_PP, total);
 
   document.getElementById('keuBadge').textContent = total + ' Baris';
+  // Label kolom Realisasi mengikuti bulan terpilih
+  var rth = document.getElementById('keuRealTh');
+  if (rth) {
+    var cur = keuCurMonthIdx();
+    var lab = APP.keuBulan === 'prev' ? ('Realisasi s.d. ' + MONTHS_ID[cur > 0 ? cur - 1 : cur])
+            : APP.keuBulan === 'this' ? ('Realisasi ' + MONTHS_ID[cur])
+            : ('Realisasi s.d. ' + MONTHS_ID[cur]);
+    rth.innerHTML = lab + ' <i class="fas fa-sort"></i>';
+  }
   document.getElementById('keuInfo').textContent = total === 0
     ? 'Tidak ada data ditemukan'
     : 'Menampilkan ' + (from + 1) + '–' + to + ' dari ' + total;
@@ -2179,7 +2244,8 @@ function renderKeuTable() {
 
   var html = '';
   rows.forEach(function (r, i) {
-    var pc  = pctClass(r.persen);
+    var rv  = keuRealOf(r);
+    var pc  = pctClass(rv.persen);
     var src = srcChip(r.sumber);
     var rid = 'keurow-' + (r.id != null ? r.id : (from + i));
     var hasDetails = r.details && r.details.length > 0;
@@ -2193,9 +2259,9 @@ function renderKeuTable() {
       '<small>' + esc(r.kro_kode) + ' / ' + esc(r.ro_full) + ' — ' + esc((r.ro_nama || '').substring(0, 60)) + '</small></div></td>';
     html += '<td>' + src + '</td>';
     html += '<td class="mono" style="text-align:right">' + fmtM(r.pagu) + '</td>';
-    html += '<td class="mono" style="text-align:right;color:var(--teal)">' + fmtM(r.realisasi) + '</td>';
-    html += '<td class="mono" style="text-align:right;color:var(--amber)">' + fmtM(r.sisa) + '</td>';
-    html += '<td><span class="pct-badge ' + pc + '">' + r.persen.toFixed(2) + '%</span></td>';
+    html += '<td class="mono" style="text-align:right;color:var(--teal)">' + fmtM(rv.real) + '</td>';
+    html += '<td class="mono" style="text-align:right;color:var(--amber)">' + fmtM(rv.sisa) + '</td>';
+    html += '<td><span class="pct-badge ' + pc + '">' + rv.persen.toFixed(2) + '%</span></td>';
     html += '</tr>';
 
     if (hasDetails) {
@@ -2203,17 +2269,21 @@ function renderKeuTable() {
       html += '<td colspan="7" style="padding:0">';
       html += '<table style="width:100%;border-collapse:collapse">';
       r.details.forEach(function (d) {
-        var dpc  = pctClass(d.persen);
-        var dsisa = (d.sisa != null) ? d.sisa : ((d.pagu || 0) - (d.realisasi || 0));
+        var dreal = (APP.keuBulan === '') ? (d.realisasi || 0) : Math.round((d.realisasi || 0) * rv.ratio);
+        var dsisa = (APP.keuBulan === '')
+          ? ((d.sisa != null) ? d.sisa : ((d.pagu || 0) - (d.realisasi || 0)))
+          : ((d.pagu || 0) - dreal);
+        var dpersen = (d.pagu > 0) ? (dreal / d.pagu * 100) : 0;
+        var dpc  = pctClass(dpersen);
         html += '<tr class="detail-row">';
         html += '<td style="width:28px"></td>';
         html += '<td style="padding:6px 12px 6px 8px;font-size:11.5px;color:var(--t2)">' +
           '<i class="fas fa-angle-right" style="font-size:9px;color:var(--t3);margin-right:6px"></i>' +
           esc(d.nama) + '</td>';
         html += '<td style="padding:6px 12px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--t2)">' + fmtM(d.pagu) + '</td>';
-        html += '<td style="padding:6px 12px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--teal)">' + fmtM(d.realisasi) + '</td>';
+        html += '<td style="padding:6px 12px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--teal)">' + fmtM(dreal) + '</td>';
         html += '<td style="padding:6px 12px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--amber)">' + fmtM(dsisa) + '</td>';
-        html += '<td style="padding:6px 12px"><span class="pct-badge ' + dpc + '" style="font-size:10px">' + d.persen.toFixed(2) + '%</span></td>';
+        html += '<td style="padding:6px 12px"><span class="pct-badge ' + dpc + '" style="font-size:10px">' + dpersen.toFixed(2) + '%</span></td>';
         html += '</tr>';
       });
       html += '</table></td></tr>';

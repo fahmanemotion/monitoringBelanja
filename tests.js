@@ -487,4 +487,30 @@ test('computeSummary — sisa per bulan = pagu − realisasi KUMULATIF (regresi 
   S.APP.viewMonth = -1; S.APP.data = []; S.APP.blokir = [];
 });
 
+test('keuRealOf — filter bulan keuangan memilih snapshot realisasi yang benar', () => {
+  var r = { pagu: 1000, realisasi: 300, realisasi_lalu: 250, realisasi_bulan: 50, sisa: 700 };
+
+  S.APP.keuBulan = '';            // s.d. terkini (kumulatif)
+  var a = S.keuRealOf(r);
+  eq(a.real, 300, "mode '' → realisasi kumulatif 300");
+  eq(a.sisa, 700, "mode '' → sisa = r.sisa 700");
+  eq(a.ratio, 1, "mode '' → ratio 1");
+
+  S.APP.keuBulan = 'prev';        // s.d. bulan lalu
+  var b = S.keuRealOf(r);
+  eq(b.real, 250, "prev → realisasi_lalu 250");
+  eq(b.sisa, 750, "prev → sisa = pagu − 250 = 750");
+  ok(Math.abs(b.ratio - 250 / 300) < 1e-9, "prev → ratio 250/300 (untuk skala detail)");
+
+  S.APP.keuBulan = 'this';        // bulan berjalan saja
+  var c = S.keuRealOf(r);
+  eq(c.real, 50, "this → realisasi_bulan 50");
+  eq(c.sisa, 950, "this → sisa = pagu − 50 = 950");
+
+  eq(b.real + b.sisa, 1000, "prev: invarian pagu = real + sisa");
+  eq(c.real + c.sisa, 1000, "this: invarian pagu = real + sisa");
+
+  S.APP.keuBulan = ''; // reset
+});
+
 run();

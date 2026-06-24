@@ -537,6 +537,12 @@
                   </select>
                 </div>
                 <div class="fg">
+                  <label>Bulan</label>
+                  <select class="fsel" id="kfBulan" title="Pilih periode realisasi yang ditampilkan">
+                    <option value="">s.d. Bulan Terkini</option>
+                  </select>
+                </div>
+                <div class="fg">
                   <label>Program</label>
                   <select class="fsel" id="kfProg">
                     <option value="">Semua Program</option>
@@ -604,7 +610,7 @@
                     <th onclick="sortKeu('uraian')">Uraian / Akun <i class="fas fa-sort"></i></th>
                     <th onclick="sortKeu('sumber')">Sumber <i class="fas fa-sort"></i></th>
                     <th onclick="sortKeu('pagu')" style="text-align:right">Pagu <i class="fas fa-sort"></i></th>
-                    <th onclick="sortKeu('realisasi')" style="text-align:right">Realisasi s.d. <i class="fas fa-sort"></i></th>
+                    <th onclick="sortKeu('realisasi')" id="keuRealTh" style="text-align:right">Realisasi s.d. <i class="fas fa-sort"></i></th>
                     <th onclick="sortKeu('sisa')" style="text-align:right">Sisa <i class="fas fa-sort"></i></th>
                     <th onclick="sortKeu('persen')">% Penyerapan <i class="fas fa-sort"></i></th>
                   </tr>
